@@ -4,10 +4,10 @@ import { defaultProposal } from "./sampleData";
 export async function loadGuests(): Promise<Guest[]> {
   const response = await fetch("/api/guests");
   if (!response.ok) {
-    const error = await response.json().catch(() => null);
+    const error = await readApiJson(response).catch(() => null);
     throw new Error(error?.error || "Could not load guests.");
   }
-  return ((await response.json()) as Guest[]).map(normalizeGuest);
+  return ((await readApiJson(response)) as Guest[]).map(normalizeGuest);
 }
 
 export async function saveGuest(guest: Guest): Promise<Guest> {
@@ -17,10 +17,10 @@ export async function saveGuest(guest: Guest): Promise<Guest> {
     body: JSON.stringify(guest)
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => null);
+    const error = await readApiJson(response).catch(() => null);
     throw new Error(error?.error || "Could not save guest.");
   }
-  return normalizeGuest(await response.json());
+  return normalizeGuest(await readApiJson(response));
 }
 
 export async function updateStoredGuest(id: string, patch: Partial<Guest>): Promise<Guest> {
@@ -30,24 +30,24 @@ export async function updateStoredGuest(id: string, patch: Partial<Guest>): Prom
     body: JSON.stringify({ id, patch })
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => null);
+    const error = await readApiJson(response).catch(() => null);
     throw new Error(error?.error || "Could not update guest.");
   }
-  return normalizeGuest(await response.json());
+  return normalizeGuest(await readApiJson(response));
 }
 
 export async function loadProposal(slug: string): Promise<Guest | undefined> {
-  const response = await fetch(`/api/proposals/${encodeURIComponent(slug)}`);
+  const response = await fetch(`/api/proposal?slug=${encodeURIComponent(slug)}`);
   if (response.status === 404) return undefined;
   if (!response.ok) {
-    const error = await response.json().catch(() => null);
+    const error = await readApiJson(response).catch(() => null);
     throw new Error(error?.error || "Could not load proposal.");
   }
-  return normalizeGuest(await response.json());
+  return normalizeGuest(await readApiJson(response));
 }
 
 export async function recordProposalView(slug: string) {
-  await fetch(`/api/proposals/${encodeURIComponent(slug)}`, { method: "POST" });
+  await fetch(`/api/proposal?slug=${encodeURIComponent(slug)}`, { method: "POST" });
 }
 
 export function slugify(input: string) {
@@ -90,4 +90,12 @@ function normalizeGuest(guest: Guest): Guest {
 
 function cleanCopy(value: string) {
   return value.replace(/\u2014/g, ", ").replace(/\u2013/g, "-").replace(/\s+/g, " ").trim();
+}
+
+async function readApiJson(response: Response) {
+  const text = await response.text();
+  if (text.trim().startsWith("<")) {
+    throw new Error("API route returned HTML instead of JSON. Check Vercel API routing and redeploy the latest build.");
+  }
+  return text ? JSON.parse(text) : null;
 }
