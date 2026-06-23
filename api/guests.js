@@ -30,6 +30,16 @@ export default async function handler(req, res) {
       return json(res, 200, fromRow(rows[0]));
     }
 
+    if (req.method === "DELETE") {
+      const { id } = await readBody(req);
+      if (!id) return json(res, 400, { error: "Missing id." });
+      await supabaseFetch(`guests?id=eq.${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { Prefer: "return=minimal" }
+      });
+      return json(res, 200, { ok: true });
+    }
+
     return json(res, 405, { error: "Method not allowed." });
   } catch (error) {
     return json(res, 500, { error: error.message || "Guest request failed." });

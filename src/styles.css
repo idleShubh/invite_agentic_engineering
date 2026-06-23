@@ -405,6 +405,15 @@ select:focus {
   color: var(--text);
 }
 
+.danger-button {
+  color: var(--danger);
+}
+
+.danger-button:hover {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--danger);
+}
+
 .primary-button:disabled {
   opacity: 0.62;
   cursor: not-allowed;

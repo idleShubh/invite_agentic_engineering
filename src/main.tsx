@@ -18,13 +18,14 @@ import {
   Search,
   Sparkles,
   Sun,
+  Trash2,
   Upload,
   Users
 } from "lucide-react";
 import { generateProposalWithDeepSeek } from "./deepseek";
 import { extractPdfText, fileToDataUrl } from "./pdf";
 import { defaultProposal } from "./sampleData";
-import { loadGuests, loadProposal, recordProposalView, saveGuest, slugify, updateStoredGuest } from "./storage";
+import { deleteStoredGuest, loadGuests, loadProposal, recordProposalView, saveGuest, slugify, updateStoredGuest } from "./storage";
 import { Guest, PipelineStatus, ProposalContent, pipelineStatuses } from "./types";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { Badge } from "./components/ui/badge";
@@ -116,6 +117,7 @@ function App() {
             selectedId={selectedId}
             onSelect={setSelectedId}
             onMove={updateGuest}
+            onDelete={deleteGuest}
             onNavigate={navigate}
           />
         </AppFrame>
@@ -160,6 +162,25 @@ function App() {
         setGuests((current) => current.map((guest) => (guest.id === id ? savedGuest : guest)));
       })
       .catch((error) => setLoadError(error instanceof Error ? error.message : "Could not save change."));
+  }
+
+  async function deleteGuest(id: string) {
+    const guest = guests.find((item) => item.id === id);
+    if (!guest) return;
+    if (!window.confirm(`Delete ${guest.name}? This removes the profile and public proposal link.`)) return;
+
+    const previousGuests = guests;
+    const nextGuests = guests.filter((item) => item.id !== id);
+    setGuests(nextGuests);
+    setSelectedId((current) => (current === id ? nextGuests[0]?.id || "" : current));
+
+    try {
+      await deleteStoredGuest(id);
+    } catch (error) {
+      setGuests(previousGuests);
+      setSelectedId(id);
+      setLoadError(error instanceof Error ? error.message : "Could not delete guest.");
+    }
   }
 
   function markViewed(slug?: string) {
@@ -208,7 +229,7 @@ function App() {
 
           <section className="grid-two" id="generator">
             <GeneratorCard onSave={upsertGuest} />
-            <GuestInspector guest={selectedGuest} onChange={updateGuest} />
+            <GuestInspector guest={selectedGuest} onChange={updateGuest} onDelete={deleteGuest} />
           </section>
 
         </section>
@@ -606,10 +627,12 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) 
 
 function GuestInspector({
   guest,
-  onChange
+  onChange,
+  onDelete
 }: {
   guest?: Guest;
   onChange: (id: string, patch: Partial<Guest>) => void;
+  onDelete: (id: string) => void;
 }) {
   if (!guest) return <EmptyState />;
   const shareUrl = `${window.location.origin}/proposal/${guest.slug}`;
@@ -648,6 +671,10 @@ function GuestInspector({
         <Check size={16} />
         {guest.published ? "Mark as draft" : "Publish proposal"}
       </button>
+      <button className="secondary-button danger-button" onClick={() => onDelete(guest.id)}>
+        <Trash2 size={16} />
+        Delete profile
+      </button>
     </section>
   );
 }
@@ -657,12 +684,14 @@ function PipelinePage({
   selectedId,
   onSelect,
   onMove,
+  onDelete,
   onNavigate
 }: {
   guests: Guest[];
   selectedId: string;
   onSelect: (id: string) => void;
   onMove: (id: string, patch: Partial<Guest>) => void;
+  onDelete: (id: string) => void;
   onNavigate: (path: string) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -787,7 +816,15 @@ function PipelinePage({
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent>
           {selectedGuest ? (
-            <PipelineGuestSheet guest={selectedGuest} onChange={onMove} onEdit={() => onNavigate("/edit")} />
+            <PipelineGuestSheet
+              guest={selectedGuest}
+              onChange={onMove}
+              onDelete={(id) => {
+                onDelete(id);
+                setSheetOpen(false);
+              }}
+              onEdit={() => onNavigate("/edit")}
+            />
           ) : (
             <>
               <SheetHeader>
@@ -819,10 +856,12 @@ function initials(name: string) {
 function PipelineGuestSheet({
   guest,
   onChange,
+  onDelete,
   onEdit
 }: {
   guest: Guest;
   onChange: (id: string, patch: Partial<Guest>) => void;
+  onDelete: (id: string) => void;
   onEdit: () => void;
 }) {
   const shareUrl = `${window.location.origin}/proposal/${guest.slug}`;
@@ -879,6 +918,11 @@ function PipelineGuestSheet({
         <Button variant="secondary" onClick={() => onChange(guest.id, { published: !guest.published })}>
           <Check size={16} />
           {guest.published ? "Mark as draft" : "Publish proposal"}
+        </Button>
+
+        <Button variant="outline" className="danger-button" onClick={() => onDelete(guest.id)}>
+          <Trash2 size={16} />
+          Delete profile
         </Button>
       </div>
     </>

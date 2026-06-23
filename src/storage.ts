@@ -36,6 +36,18 @@ export async function updateStoredGuest(id: string, patch: Partial<Guest>): Prom
   return normalizeGuest(await readApiJson(response));
 }
 
+export async function deleteStoredGuest(id: string): Promise<void> {
+  const response = await fetch("/api/guests", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id })
+  });
+  if (!response.ok) {
+    const error = await readApiJson(response).catch(() => null);
+    throw new Error(error?.error || "Could not delete guest.");
+  }
+}
+
 export async function loadProposal(slug: string): Promise<Guest | undefined> {
   const response = await fetch(`/api/proposal?slug=${encodeURIComponent(slug)}`);
   if (response.status === 404) return undefined;
