@@ -31,7 +31,7 @@ export const defaultProposal = (name = "Guest", role = "Builder", company = "the
     "What actually breaks at scale"
   ],
   hostFit:
-    "Prasad Pillai keeps the conversation practical: real systems, real trade-offs, and lessons engineering leaders can use.",
+    "Prasad Pilla keeps the conversation practical: real systems, real trade-offs, and lessons engineering leaders can use.",
   hostPhotoUrl: "/prasad_pilla.jpg",
   episodeTitle: `How ${name} is building practical AI systems`,
   previousEpisodes: [

@@ -4,43 +4,102 @@ import {
   ArrowRight,
   CalendarDays,
   Check,
-  ChevronRight,
   Copy,
   Eye,
   ExternalLink,
+  Filter,
   FileText,
   Link,
   Loader2,
   Mic2,
+  Moon,
   PencilLine,
   Plus,
   Search,
   Sparkles,
+  Sun,
   Upload,
   Users
 } from "lucide-react";
 import { generateProposalWithDeepSeek } from "./deepseek";
 import { extractPdfText, fileToDataUrl } from "./pdf";
 import { defaultProposal } from "./sampleData";
-import { loadGuests, saveGuests, slugify } from "./storage";
+import { loadGuests, loadProposal, recordProposalView, saveGuest, slugify, updateStoredGuest } from "./storage";
 import { Guest, PipelineStatus, ProposalContent, pipelineStatuses } from "./types";
+import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./components/ui/sheet";
 import "./styles.css";
 
 const siteName = "Agentic Engineering";
 const defaultSeoImage = "/agentic-engineering-logo.png";
 
 function App() {
-  const [guests, setGuests] = useState<Guest[]>(loadGuests);
-  const [selectedId, setSelectedId] = useState(guests[0]?.id ?? "");
-  const pathname = window.location.pathname;
-  const proposalSlug = window.location.pathname.match(/^\/proposal\/([^/]+)/)?.[1];
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [authState, setAuthState] = useState<"checking" | "authenticated" | "anonymous">("checking");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [proposalGuest, setProposalGuest] = useState<Guest | undefined>();
+  const [pathname, setPathname] = useState(window.location.pathname);
+  const proposalSlug = pathname.match(/^\/proposal\/([^/]+)/)?.[1];
   const selectedGuest = guests.find((guest) => guest.id === selectedId) ?? guests[0];
 
-  useEffect(() => saveGuests(guests), [guests]);
+  useEffect(() => {
+    const syncPath = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", syncPath);
+    return () => window.removeEventListener("popstate", syncPath);
+  }, []);
+
+  useEffect(() => {
+    if (!proposalSlug) return;
+    setLoading(true);
+    loadProposal(proposalSlug)
+      .then(setProposalGuest)
+      .catch((error) => setLoadError(error instanceof Error ? error.message : "Could not load proposal."))
+      .finally(() => setLoading(false));
+  }, [proposalSlug]);
+
+  useEffect(() => {
+    if (proposalSlug) return;
+    checkSession();
+  }, [proposalSlug]);
+
+  async function checkSession() {
+    setLoading(true);
+    setLoadError("");
+    try {
+      const session = await fetch("/api/session").then((response) => response.json());
+      if (!session.authenticated) {
+        setAuthState("anonymous");
+        setGuests([]);
+        return;
+      }
+      setAuthState("authenticated");
+      const nextGuests = await loadGuests();
+      setGuests(nextGuests);
+      setSelectedId((current) => current || nextGuests[0]?.id || "");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load app data.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   if (proposalSlug) {
-    const guest = guests.find((item) => item.slug === proposalSlug);
-    return <ProposalPage guest={guest} onViewed={() => markViewed(guest?.id)} />;
+    if (loading) return <RouteLoading label="Loading proposal" />;
+    if (loadError) return <RouteError message={loadError} />;
+    return <ProposalPage guest={proposalGuest} onViewed={() => markViewed(proposalGuest?.slug)} />;
+  }
+
+  if (loading || authState === "checking") {
+    return <RouteLoading label="Loading workspace" />;
+  }
+
+  if (authState === "anonymous") {
+    return <LoginPage onLogin={checkSession} />;
   }
 
   if (pathname === "/pipeline") {
@@ -51,8 +110,14 @@ function App() {
           description="Track Agentic Engineering podcast guest outreach from reach out to contacted, in process, booked, and done."
           path="/pipeline"
         />
-        <AppFrame>
-          <PipelinePage guests={guests} selectedId={selectedId} onSelect={setSelectedId} onMove={updateGuest} />
+        <AppFrame pathname={pathname} onNavigate={navigate}>
+          <PipelinePage
+            guests={guests}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onMove={updateGuest}
+            onNavigate={navigate}
+          />
         </AppFrame>
       </>
     );
@@ -66,21 +131,22 @@ function App() {
           description="Select and edit personalized Agentic Engineering podcast proposals, tune guest-specific copy, and review fixed podcast episode links."
           path="/edit"
         />
-        <AppFrame>
+        <AppFrame pathname={pathname} onNavigate={navigate}>
           <EditPage guests={guests} selectedId={selectedId} onSelect={setSelectedId} onChange={updateGuest} />
         </AppFrame>
       </>
     );
   }
 
-  function upsertGuest(nextGuest: Guest) {
+  async function upsertGuest(nextGuest: Guest) {
+    const savedGuest = await saveGuest(nextGuest);
     setGuests((current) => {
-      const exists = current.some((guest) => guest.id === nextGuest.id);
+      const exists = current.some((guest) => guest.id === savedGuest.id);
       return exists
-        ? current.map((guest) => (guest.id === nextGuest.id ? nextGuest : guest))
-        : [nextGuest, ...current];
+        ? current.map((guest) => (guest.id === savedGuest.id ? savedGuest : guest))
+        : [savedGuest, ...current];
     });
-    setSelectedId(nextGuest.id);
+    setSelectedId(savedGuest.id);
   }
 
   function updateGuest(id: string, patch: Partial<Guest>) {
@@ -89,13 +155,22 @@ function App() {
         guest.id === id ? { ...guest, ...patch, updatedAt: new Date().toISOString() } : guest
       )
     );
+    updateStoredGuest(id, patch)
+      .then((savedGuest) => {
+        setGuests((current) => current.map((guest) => (guest.id === id ? savedGuest : guest)));
+      })
+      .catch((error) => setLoadError(error instanceof Error ? error.message : "Could not save change."));
   }
 
-  function markViewed(id?: string) {
-    if (!id) return;
-    setGuests((current) =>
-      current.map((guest) => (guest.id === id ? { ...guest, viewed: guest.viewed + 1 } : guest))
-    );
+  function markViewed(slug?: string) {
+    if (!slug) return;
+    recordProposalView(slug);
+  }
+
+  function navigate(nextPath: string) {
+    if (nextPath === pathname) return;
+    window.history.pushState({}, "", nextPath);
+    setPathname(nextPath);
   }
 
   return (
@@ -105,7 +180,8 @@ function App() {
         description="Generate personalized Agentic Engineering podcast invitation pages from LinkedIn profiles, add guest photos, and prepare shareable proposal links for AI engineering leaders."
         path="/"
       />
-      <AppFrame>
+      <AppFrame pathname={pathname} onNavigate={navigate}>
+        {loadError ? <p className="error app-error">{loadError}</p> : null}
         <section className="workspace">
           <header className="topbar">
             <div>
@@ -114,14 +190,14 @@ function App() {
             </div>
             {selectedGuest ? (
               <div className="topbar-actions">
-                <a className="secondary-link compact" href="/pipeline">
+                <button className="secondary-link compact" onClick={() => navigate("/pipeline")}>
                   <Users size={16} />
                   Pipeline
-                </a>
-                <a className="secondary-link compact" href="/edit">
+                </button>
+                <button className="secondary-link compact" onClick={() => navigate("/edit")}>
                   <PencilLine size={16} />
                   Edit
-                </a>
+                </button>
                 <a className="primary-button" href={`/proposal/${selectedGuest.slug}`} target="_blank">
                   <ExternalLink size={16} />
                   Open proposal
@@ -141,13 +217,21 @@ function App() {
   );
 }
 
-function AppFrame({ children }: { children: React.ReactNode }) {
-  const pathname = window.location.pathname;
-  const [apiKey, setApiKey] = useState(localStorage.getItem("deepseek-api-key") ?? "");
+function AppFrame({
+  children,
+  pathname,
+  onNavigate
+}: {
+  children: React.ReactNode;
+  pathname: string;
+  onNavigate: (path: string) => void;
+}) {
+  const [theme, setTheme] = useState(() => localStorage.getItem("ae-theme") || "dark");
 
   useEffect(() => {
-    localStorage.setItem("deepseek-api-key", apiKey);
-  }, [apiKey]);
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("ae-theme", theme);
+  }, [theme]);
 
   return (
     <main className="app-shell">
@@ -160,29 +244,141 @@ function AppFrame({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="side-nav">
-          <a className={pathname === "/" ? "active" : ""} href="/">Generator</a>
-          <a className={pathname === "/edit" ? "active" : ""} href="/edit">Edit</a>
-          <a className={pathname === "/pipeline" ? "active" : ""} href="/pipeline">Pipeline</a>
+          <button className={pathname === "/" ? "active" : ""} onClick={() => onNavigate("/")}>Generator</button>
+          <button className={pathname === "/edit" ? "active" : ""} onClick={() => onNavigate("/edit")}>Edit</button>
+          <button className={pathname === "/pipeline" ? "active" : ""} onClick={() => onNavigate("/pipeline")}>Pipeline</button>
         </nav>
-        <div className="sidebar-note">
-          <Sparkles size={16} />
-          DeepSeek drafts the personalization. You keep editorial control before sharing.
-        </div>
-        <div className="sidebar-api">
-          <div>
-            <p className="eyebrow">DeepSeek API</p>
-            <span>{apiKey.trim() ? "Saved for this browser" : "Add once, use everywhere"}</span>
+        <div className="sidebar-footer">
+          <div className="theme-switch" aria-label="Theme switcher">
+            <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>
+              <Sun size={14} />
+              Light
+            </button>
+            <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>
+              <Moon size={14} />
+              Dark
+            </button>
           </div>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder="sk-..."
-            aria-label="DeepSeek API key"
-          />
+          <div className="sidebar-note">
+            <Sparkles size={16} />
+            DeepSeek drafts run from the backend. Editorial control stays here.
+          </div>
+          <button className="secondary-button logout-button" onClick={logout}>
+            Sign out
+          </button>
         </div>
       </aside>
       {children}
+    </main>
+  );
+}
+
+function ThemeSwitch({ className = "" }: { className?: string }) {
+  const [theme, setTheme] = useState(() => localStorage.getItem("ae-theme") || "dark");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("ae-theme", theme);
+  }, [theme]);
+
+  return (
+    <div className={`theme-switch ${className}`} aria-label="Theme switcher">
+      <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>
+        <Sun size={14} />
+        Light
+      </button>
+      <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>
+        <Moon size={14} />
+        Dark
+      </button>
+    </div>
+  );
+}
+
+async function logout() {
+  await fetch("/api/logout", { method: "POST" });
+  window.location.href = "/";
+}
+
+function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const [email, setEmail] = useState("admin@supatest.ai");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || "Login failed.");
+      }
+      onLogin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="login-page">
+      <SeoManager
+        title="Sign In | Agentic Engineering"
+        description="Private Agentic Engineering proposal workspace."
+        path="/"
+        noindex
+      />
+      <form className="login-card" onSubmit={submit}>
+        <div className="brand-mark">AE</div>
+        <div>
+          <p className="eyebrow">Private workspace</p>
+          <h1>Sign in to manage proposals.</h1>
+        </div>
+        <label>
+          Email
+          <input value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+          />
+        </label>
+        {error ? <p className="error">{error}</p> : null}
+        <button className="primary-button wide" disabled={busy}>
+          {busy ? <Loader2 className="spin" size={16} /> : <ArrowRight size={16} />}
+          {busy ? "Signing in" : "Sign in"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function RouteLoading({ label }: { label: string }) {
+  return (
+    <main className="route-state">
+      <Loader2 className="spin" size={24} />
+      <p>{label}</p>
+    </main>
+  );
+}
+
+function RouteError({ message }: { message: string }) {
+  return (
+    <main className="route-state">
+      <h1>Something needs attention.</h1>
+      <p>{message}</p>
     </main>
   );
 }
@@ -274,7 +470,7 @@ function isPublicShareImage(image: string) {
   return Boolean(image && !image.startsWith("data:"));
 }
 
-function GeneratorCard({ onSave }: { onSave: (guest: Guest) => void }) {
+function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
@@ -313,7 +509,6 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => void }) {
     setError("");
     try {
       const proposal = await generateProposalWithDeepSeek({
-        apiKey: localStorage.getItem("deepseek-api-key") ?? "",
         name: safeName,
         role: safeRole,
         company: safeCompany,
@@ -340,7 +535,7 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => void }) {
         createdAt: now,
         updatedAt: now
       };
-      onSave(guest);
+      await onSave(guest);
       setName("");
       setEmail("");
       setRole("");
@@ -461,16 +656,19 @@ function PipelinePage({
   guests,
   selectedId,
   onSelect,
-  onMove
+  onMove,
+  onNavigate
 }: {
   guests: Guest[];
   selectedId: string;
   onSelect: (id: string) => void;
   onMove: (id: string, patch: Partial<Guest>) => void;
+  onNavigate: (path: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [draggingId, setDraggingId] = useState("");
   const [dropTarget, setDropTarget] = useState<PipelineStatus | "">("");
+  const [sheetOpen, setSheetOpen] = useState(false);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredGuests = normalizedQuery
     ? guests.filter((guest) =>
@@ -480,9 +678,15 @@ function PipelinePage({
           .includes(normalizedQuery)
       )
     : guests;
+  const selectedGuest = guests.find((guest) => guest.id === selectedId);
   const bookedCount = guests.filter((guest) => guest.status === "Booked").length;
   const liveCount = guests.filter((guest) => guest.published).length;
   const viewedCount = guests.reduce((total, guest) => total + guest.viewed, 0);
+
+  function openGuest(id: string) {
+    onSelect(id);
+    setSheetOpen(true);
+  }
 
   function handleDrop(status: PipelineStatus) {
     if (!draggingId) return;
@@ -498,14 +702,13 @@ function PipelinePage({
     <section className="pipeline-page">
       <header className="pipeline-hero">
         <div>
-          <p className="eyebrow">Pipeline</p>
-          <h1>Guest outreach board.</h1>
-          <p>Move each guest from first reach out to done without crowding the proposal generator.</p>
+          <h1>Pipeline</h1>
+          <p>Drag guests between stages. Click any card for details, edits, and proposal actions.</p>
         </div>
-        <a className="primary-button" href="/">
+        <button className="primary-button" onClick={() => onNavigate("/")}>
           <Plus size={16} />
           New proposal
-        </a>
+        </button>
       </header>
 
       <div className="pipeline-toolbar">
@@ -534,9 +737,7 @@ function PipelinePage({
                 setDropTarget(status);
               }}
               onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                  setDropTarget("");
-                }
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget("");
               }}
               onDrop={(event) => {
                 event.preventDefault();
@@ -544,18 +745,16 @@ function PipelinePage({
               }}
             >
               <header>
-                <div>
-                  <strong>{status}</strong>
-                  <span>{columnGuests.length} {columnGuests.length === 1 ? "guest" : "guests"}</span>
-                </div>
-                <small>{Math.round((columnGuests.length / Math.max(filteredGuests.length, 1)) * 100)}%</small>
+                <span>{status}</span>
+                <Badge variant="secondary">{columnGuests.length}</Badge>
               </header>
+              <div className="pipeline-column-list">
               {columnGuests.map((guest) => (
-                <article
+                <Card
                   className={`pipeline-card ${guest.id === selectedId ? "selected" : ""} ${guest.id === draggingId ? "dragging" : ""}`}
                   key={guest.id}
                   draggable
-                  onClick={() => onSelect(guest.id)}
+                  onClick={() => openGuest(guest.id)}
                   onDragStart={(event) => {
                     setDraggingId(guest.id);
                     event.dataTransfer.effectAllowed = "move";
@@ -566,52 +765,123 @@ function PipelinePage({
                     setDropTarget("");
                   }}
                 >
-                  <div className="pipeline-card-head">
-                    <img src={guest.photoUrl} alt="" />
+                  <CardContent className="pipeline-card-content">
+                    <Avatar>
+                      <AvatarImage src={guest.photoUrl} alt={guest.name} />
+                      <AvatarFallback>{initials(guest.name)}</AvatarFallback>
+                    </Avatar>
                     <div>
                       <h3>{guest.name}</h3>
-                      <p>{guest.role}</p>
+                      <p>{guest.company}</p>
                     </div>
-                  </div>
-                  <p className="pipeline-company">{guest.company}</p>
-                  <div className="pipeline-card-meta">
-                    <span className={guest.published ? "live-pill" : "draft-pill"}>
-                      {guest.published ? "Live" : "Draft"}
-                    </span>
-                    <span><Eye size={13} /> {guest.viewed}</span>
-                  </div>
-                  <select
-                    value={guest.status}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => onMove(guest.id, { status: event.target.value as PipelineStatus })}
-                  >
-                    {pipelineStatuses.map((option) => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                  <div className="pipeline-card-actions">
-                    <a href={`/proposal/${guest.slug}`} target="_blank" onClick={(event) => event.stopPropagation()}>
-                      Open <ChevronRight size={14} />
-                    </a>
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        navigator.clipboard.writeText(`${window.location.origin}/proposal/${guest.slug}`);
-                      }}
-                    >
-                      <Copy size={14} /> Copy link
-                    </button>
-                  </div>
-                </article>
+                  </CardContent>
+                </Card>
               ))}
-              {!columnGuests.length ? (
-                <div className="pipeline-empty">No guests here yet.</div>
-              ) : null}
+              {!columnGuests.length ? <div className="pipeline-empty">Drop here</div> : null}
+              </div>
             </div>
           );
         })}
       </div>
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent>
+          {selectedGuest ? (
+            <PipelineGuestSheet guest={selectedGuest} onChange={onMove} onEdit={() => onNavigate("/edit")} />
+          ) : (
+            <>
+              <SheetHeader>
+                <SheetTitle>Guest details</SheetTitle>
+                <SheetDescription>Select a guest to see details.</SheetDescription>
+              </SheetHeader>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </section>
+  );
+}
+
+function formatDate(value: string) {
+  if (!value) return "Now";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
+}
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function PipelineGuestSheet({
+  guest,
+  onChange,
+  onEdit
+}: {
+  guest: Guest;
+  onChange: (id: string, patch: Partial<Guest>) => void;
+  onEdit: () => void;
+}) {
+  const shareUrl = `${window.location.origin}/proposal/${guest.slug}`;
+  return (
+    <>
+      <SheetHeader>
+        <div className="sheet-profile">
+          <Avatar>
+            <AvatarImage src={guest.photoUrl} alt={guest.name} />
+            <AvatarFallback>{initials(guest.name)}</AvatarFallback>
+          </Avatar>
+          <div>
+            <SheetTitle>{guest.name}</SheetTitle>
+            <SheetDescription>{guest.role} · {guest.company}</SheetDescription>
+          </div>
+        </div>
+      </SheetHeader>
+
+      <div className="sheet-stack">
+        <div className="sheet-meta-grid">
+          <Stat value={guest.status} label="Stage" />
+          <Stat value={guest.viewed.toString()} label="Views" />
+          <Stat value={guest.published ? "Live" : "Draft"} label="Proposal" />
+        </div>
+
+        <label>
+          Pipeline stage
+          <select value={guest.status} onChange={(event) => onChange(guest.id, { status: event.target.value as PipelineStatus })}>
+            {pipelineStatuses.map((status) => (
+              <option key={status}>{status}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="share-box">
+          <Link size={16} />
+          <span>{shareUrl}</span>
+          <button onClick={() => navigator.clipboard.writeText(shareUrl)} title="Copy proposal link">
+            <Copy size={15} />
+          </button>
+        </div>
+
+        <div className="sheet-actions">
+          <a className="primary-button" href={`/proposal/${guest.slug}`} target="_blank">
+            <ExternalLink size={16} />
+            Open proposal
+          </a>
+          <Button variant="outline" onClick={onEdit}>
+            <PencilLine size={16} />
+            Edit copy
+          </Button>
+        </div>
+
+        <Button variant="secondary" onClick={() => onChange(guest.id, { published: !guest.published })}>
+          <Check size={16} />
+          {guest.published ? "Mark as draft" : "Publish proposal"}
+        </Button>
+      </div>
+    </>
   );
 }
 
@@ -766,6 +1036,9 @@ function ProposalEditor({
 
 function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void }) {
   useEffect(() => onViewed(), []);
+  useEffect(() => {
+    document.documentElement.dataset.theme = localStorage.getItem("ae-theme") || "dark";
+  }, []);
 
   if (!guest || !guest.published) {
     return (
@@ -823,6 +1096,7 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
         }}
       />
       <main className="proposal-page">
+        <ThemeSwitch className="proposal-theme-switch" />
         <section className="proposal-hero">
         <div className="proposal-hero-copy">
           <div className="proposal-logo">AE <span>Agentic Engineering</span></div>
@@ -888,9 +1162,9 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
 
       <ProposalBand label="Your host" title="Practitioner, not pundit.">
         <div className="host-card">
-          <img src={proposal.hostPhotoUrl} alt="Prasad Pillai" />
+          <img src={proposal.hostPhotoUrl} alt="Prasad Pilla" />
           <div className="host-profile">
-            <h3>Prasad Pillai</h3>
+            <h3>Prasad Pilla</h3>
             <p className="host-role">Host · Founder & CEO, Supatest</p>
             <div className="host-tags">
               <span>2x Founder</span>

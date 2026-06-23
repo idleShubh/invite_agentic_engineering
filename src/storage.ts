@@ -1,20 +1,53 @@
 import { Guest } from "./types";
-import { defaultProposal, seedGuests } from "./sampleData";
+import { defaultProposal } from "./sampleData";
 
-const STORAGE_KEY = "podcast-proposal-guests";
-
-export function loadGuests(): Guest[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return seedGuests;
-    return (JSON.parse(raw) as Guest[]).map(normalizeGuest);
-  } catch {
-    return seedGuests;
+export async function loadGuests(): Promise<Guest[]> {
+  const response = await fetch("/api/guests");
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error || "Could not load guests.");
   }
+  return ((await response.json()) as Guest[]).map(normalizeGuest);
 }
 
-export function saveGuests(guests: Guest[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(guests));
+export async function saveGuest(guest: Guest): Promise<Guest> {
+  const response = await fetch("/api/guests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(guest)
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error || "Could not save guest.");
+  }
+  return normalizeGuest(await response.json());
+}
+
+export async function updateStoredGuest(id: string, patch: Partial<Guest>): Promise<Guest> {
+  const response = await fetch("/api/guests", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, patch })
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error || "Could not update guest.");
+  }
+  return normalizeGuest(await response.json());
+}
+
+export async function loadProposal(slug: string): Promise<Guest | undefined> {
+  const response = await fetch(`/api/proposals/${encodeURIComponent(slug)}`);
+  if (response.status === 404) return undefined;
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.error || "Could not load proposal.");
+  }
+  return normalizeGuest(await response.json());
+}
+
+export async function recordProposalView(slug: string) {
+  await fetch(`/api/proposals/${encodeURIComponent(slug)}`, { method: "POST" });
 }
 
 export function slugify(input: string) {
