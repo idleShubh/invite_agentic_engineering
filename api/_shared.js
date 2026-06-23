@@ -2,8 +2,13 @@ import crypto from "node:crypto";
 
 const projectId = process.env.SUPABASE_PROJECT_ID || "xsomhstngzyvxhhlyhpm";
 const supabaseUrl = process.env.SUPABASE_URL || `https://${projectId}.supabase.co`;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const authSecret = process.env.AUTH_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "local-dev-secret";
+const supabaseServiceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_SECRET_KEY ||
+  "";
+const normalizedSupabaseServiceKey = supabaseServiceKey.trim();
+const authSecret = process.env.AUTH_SECRET || normalizedSupabaseServiceKey || "local-dev-secret";
 const sessionCookie = "ae_session";
 const secureCookie = process.env.NODE_ENV === "production" ? " Secure;" : "";
 
@@ -74,12 +79,16 @@ export async function readBody(req) {
 }
 
 export async function supabaseFetch(path, options = {}) {
-  if (!supabaseServiceKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY.");
+  if (!normalizedSupabaseServiceKey) {
+    throw new Error(
+      "Supabase is not configured on this deployment. Add SUPABASE_SERVICE_ROLE_KEY in Vercel Project Settings > Environment Variables, then redeploy."
+    );
+  }
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
     ...options,
     headers: {
-      apikey: supabaseServiceKey,
-      Authorization: `Bearer ${supabaseServiceKey}`,
+      apikey: normalizedSupabaseServiceKey,
+      Authorization: `Bearer ${normalizedSupabaseServiceKey}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
       ...(options.headers || {})
@@ -88,7 +97,13 @@ export async function supabaseFetch(path, options = {}) {
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    throw new Error(data?.message || data?.error || text || `Supabase request failed with ${response.status}`);
+    const message = data?.message || data?.error || text || `Supabase request failed with ${response.status}`;
+    if (/invalid api key/i.test(message)) {
+      throw new Error(
+        "Invalid Supabase API key on this deployment. In Vercel, set SUPABASE_SERVICE_ROLE_KEY to the service_role key from the same Supabase project, not the anon or publishable key, then redeploy."
+      );
+    }
+    throw new Error(message);
   }
   return data;
 }

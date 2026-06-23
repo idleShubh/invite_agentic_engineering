@@ -39,6 +39,8 @@ vercel dev
 2. Add the variables from `.env.example` to Vercel.
 3. Rotate the DeepSeek key and use the new value for `DEEPSEEK_API_KEY`.
 
+Use the Supabase `service_role` key for `SUPABASE_SERVICE_ROLE_KEY`. Do not use the anon key or `sb_publishable_...` key for this backend variable, because the dashboard API writes and updates private proposal records server-side.
+
 The app dashboard at `/`, `/edit`, and `/pipeline` requires the configured admin login. Public proposal URLs such as `/proposal/anuj-kumar` remain view-only and do not require sign-in.
 
 ## SEO and Link Previews
