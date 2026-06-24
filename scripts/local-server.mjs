@@ -9,6 +9,7 @@ import generateProposal from "../api/generate-proposal.js";
 import guests from "../api/guests.js";
 import login from "../api/login.js";
 import logout from "../api/logout.js";
+import photo from "../api/photo.js";
 import proposalQuery from "../api/proposal.js";
 import proposal from "../api/proposals/[slug].js";
 import session from "../api/session.js";
@@ -24,6 +25,7 @@ const handlers = {
   "/api/guests": guests,
   "/api/login": login,
   "/api/logout": logout,
+  "/api/photo": photo,
   "/api/proposal": proposalQuery,
   "/api/session": session
 };

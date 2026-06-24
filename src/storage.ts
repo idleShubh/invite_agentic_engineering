@@ -59,7 +59,12 @@ export async function loadProposal(slug: string): Promise<Guest | undefined> {
 }
 
 export async function recordProposalView(slug: string) {
-  await fetch(`/api/proposal?slug=${encodeURIComponent(slug)}`, { method: "POST" });
+  const url = `/api/proposal?slug=${encodeURIComponent(slug)}`;
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(url, new Blob([], { type: "text/plain" }));
+    return;
+  }
+  await fetch(url, { method: "POST", keepalive: true });
 }
 
 export function slugify(input: string) {

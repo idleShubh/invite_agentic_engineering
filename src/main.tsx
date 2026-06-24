@@ -29,7 +29,6 @@ import {
   Wrench
 } from "lucide-react";
 import { analyzeProfileWithDeepSeek, generateProposalWithDeepSeek } from "./deepseek";
-import { extractPdfText, fileToDataUrl } from "./pdf";
 import { defaultProposal } from "./sampleData";
 import { deleteStoredGuest, loadGuests, loadProposal, recordProposalView, saveGuest, slugify, updateStoredGuest } from "./storage";
 import { Guest, PipelineStatus, ProposalContent, ProposalTemplate, pipelineStatuses } from "./types";
@@ -537,6 +536,15 @@ function isPublicShareImage(image: string) {
   return Boolean(image && !image.startsWith("data:"));
 }
 
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function GeneratorCard({
   onSave,
   onDraftChange
@@ -576,6 +584,7 @@ function GeneratorCard({
     setError("");
     try {
       setPdfName(file.name);
+      const { extractPdfText } = await import("./pdf");
       const text = await extractPdfText(file);
       setPdfText(text);
       setBusy("Analyzing profile");
@@ -620,6 +629,7 @@ function GeneratorCard({
       const message = err instanceof Error ? err.message : "Could not analyze that PDF.";
       setError(`${message} Local extraction is shown as a fallback.`);
       try {
+        const { extractPdfText } = await import("./pdf");
         const text = await extractPdfText(file);
         const extracted = inferLinkedInProfile(text);
         const fallbackDraft = analyzeDraftProfile({
