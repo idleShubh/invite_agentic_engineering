@@ -1501,56 +1501,10 @@ select:focus {
   margin: 0;
 }
 
-.angle-list {
-  display: grid;
-  max-width: 900px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--surface);
-}
-
-.proposal-angle-list {
-  margin: 8px 0 22px;
-}
-
-.proposal-layout-research .proposal-angle-list {
-  max-width: 980px;
-  border-radius: 4px;
-}
-
-.proposal-layout-operator .proposal-angle-list .angle-row {
-  grid-template-columns: 72px minmax(0, 1fr);
-}
-
 .proposal-layout-category .episode-brief > p,
 .proposal-layout-founding .episode-brief > p {
   font-size: 20px;
   color: var(--text);
-}
-
-.angle-row {
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  padding: 14px 16px;
-  border-top: 1px solid var(--line);
-}
-
-.angle-row:first-child {
-  border-top: 0;
-}
-
-.angle-row span {
-  color: var(--proposal-accent, var(--muted));
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.angle-row p {
-  margin: 0;
-  color: var(--soft);
 }
 
 .episode-brief {
@@ -1812,11 +1766,6 @@ blockquote {
 
   .proposal-hero p {
     font-size: 17px;
-  }
-
-  .angle-row {
-    grid-template-columns: 1fr;
-    gap: 6px;
   }
 
   .proposal-layout-research .audience-grid,

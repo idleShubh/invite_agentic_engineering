@@ -1669,16 +1669,6 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
         <div className="episode-brief">
           <p>{proposal.editorialThesis}</p>
         </div>
-        {proposalFrame.showAngles ? (
-          <div className="angle-list proposal-angle-list">
-            {proposal.supportingAngles.slice(0, 5).map((angle, index) => (
-              <div className="angle-row" key={angle}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <p>{angle}</p>
-              </div>
-            ))}
-          </div>
-        ) : null}
         <p className="section-copy">{proposalFrame.topicIntro}</p>
         <div className="topic-cloud">
           {proposal.topics.map((topic) => (
@@ -1822,7 +1812,6 @@ type ProposalFrame = {
   signalLabel: string;
   episodeLabel: string;
   topicIntro: string;
-  showAngles: boolean;
   fallbackReasons: Array<{ title: string; body: string }>;
 };
 
@@ -1868,7 +1857,6 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       signalLabel: "Signals we will build from",
       episodeLabel: "Discussion map",
       topicIntro: "Potential technical threads we would explore with you:",
-      showAngles: true,
       fallbackReasons: [
         {
           title: "A serious technical room",
@@ -1927,7 +1915,6 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       signalLabel: "Operating signals",
       episodeLabel: "Field report",
       topicIntro: "Potential operating questions we would pressure-test with you:",
-      showAngles: true,
       fallbackReasons: [
         {
           title: "Talk to people with the same scars",
@@ -1986,7 +1973,6 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       signalLabel: "Category signals",
       episodeLabel: "Proposed thesis",
       topicIntro: "Potential category angles we would discuss with you:",
-      showAngles: false,
       fallbackReasons: [
         {
           title: "Define the category language",
@@ -2045,7 +2031,6 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       signalLabel: "What we studied",
       episodeLabel: "Editorial premise",
       topicIntro: "Potential standards-setting threads we would explore:",
-      showAngles: true,
       fallbackReasons: [
         {
           title: "A conversation with a point of view",
@@ -2104,7 +2089,6 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       signalLabel: "Signals we will preserve",
       episodeLabel: "Technical record",
       topicIntro: "Potential principles and trade-offs we would unpack:",
-      showAngles: true,
       fallbackReasons: [
         {
           title: "Preserve how you think",
@@ -2161,7 +2145,6 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
     signalLabel: "What we noticed",
     episodeLabel: "Proposed episode",
     topicIntro: "Potential topics we would discuss with you:",
-    showAngles: false,
     fallbackReasons: [
       {
         title: "Reach relevant builders",
