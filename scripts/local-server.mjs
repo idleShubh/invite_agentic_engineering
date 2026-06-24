@@ -10,6 +10,7 @@ import guests from "../api/guests.js";
 import login from "../api/login.js";
 import logout from "../api/logout.js";
 import photo from "../api/photo.js";
+import proposalPage from "../api/proposal-page.js";
 import proposalQuery from "../api/proposal.js";
 import proposal from "../api/proposals/[slug].js";
 import session from "../api/session.js";
@@ -44,6 +45,12 @@ http
     if (proposalMatch) {
       req.query = { slug: decodeURIComponent(proposalMatch[1]) };
       return proposal(req, res);
+    }
+
+    const proposalPageMatch = pathname.match(/^\/proposal\/([^/]+)$/);
+    if (proposalPageMatch) {
+      req.query = { slug: decodeURIComponent(proposalPageMatch[1]) };
+      return proposalPage(req, res);
     }
 
     return serveStatic(pathname, res);

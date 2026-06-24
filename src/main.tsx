@@ -1565,8 +1565,8 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
   }
 
   const proposal = withProposalDefaults(guest.proposal, guest.name, guest.role, guest.company);
-  const proposalTitle = `${guest.name} Podcast Invitation | Agentic Engineering`;
-  const proposalDescription = `A personalized Agentic Engineering podcast proposal for ${guest.name}, ${guest.role} at ${guest.company}, with audience context, episode topics, and booking details.`;
+  const proposalTitle = `${guest.name}, join Agentic Engineering with Prasad Pilla`;
+  const proposalDescription = `Prasad Pilla is inviting ${guest.name} from ${guest.company} to join the Agentic Engineering podcast and share valuable insights with serious AI builders.`;
   const proposalImage = isPublicShareImage(guest.photoUrl) ? guest.photoUrl : defaultSeoImage;
   const proposalSkin = templateClassName(proposal.strategy.template);
   const proposalFrame = proposalFrameForTemplate(proposal.strategy.template);

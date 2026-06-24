@@ -5,6 +5,10 @@
       "destination": "/api/$1"
     },
     {
+      "source": "/proposal/:slug",
+      "destination": "/api/proposal-page?slug=:slug"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
