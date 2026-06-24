@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { supabaseFetch } from "./_shared.js";
 
@@ -7,6 +8,7 @@ const defaultImage = "/agentic-engineering-logo.png";
 const htmlCacheHeaders = {
   "Cache-Control": "public, s-maxage=300, stale-while-revalidate=86400"
 };
+const functionDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default async function handler(req, res) {
   const slug = req.query.slug;
@@ -89,7 +91,48 @@ function personalizedHtml(meta) {
 }
 
 function readIndexHtml() {
-  return readFileSync(path.join(process.cwd(), "dist", "index.html"), "utf8");
+  const candidates = [
+    path.join(process.cwd(), "dist", "index.html"),
+    path.join(functionDir, "..", "dist", "index.html")
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return readFileSync(candidate, "utf8");
+  }
+
+  return fallbackIndexHtml();
+}
+
+function fallbackIndexHtml() {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agentic Engineering Podcast Proposal Generator</title>
+    <meta name="description" content="Create personalized Agentic Engineering podcast proposal pages for AI engineering leaders, manage guest outreach, edit invitations, and track every proposal from reach out to done." />
+    <meta name="robots" content="index,follow" />
+    <meta name="theme-color" content="#07080e" />
+    <link rel="icon" type="image/png" href="/agentic-engineering-logo.png" />
+    <link rel="apple-touch-icon" href="/agentic-engineering-logo.png" />
+    <link rel="canonical" href="/" />
+    <meta property="og:site_name" content="Agentic Engineering" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Agentic Engineering Podcast Proposal Generator" />
+    <meta property="og:description" content="Generate personalized podcast proposals, share guest-specific invitation pages, and track outreach for Agentic Engineering." />
+    <meta property="og:image" content="/agentic-engineering-logo.png" />
+    <meta property="og:url" content="/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Agentic Engineering Podcast Proposal Generator" />
+    <meta name="twitter:description" content="Create personalized podcast proposal pages and track guest outreach for Agentic Engineering." />
+    <meta name="twitter:image" content="/agentic-engineering-logo.png" />
+    <script type="module" crossorigin src="/assets/index-rrfBNfbw.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-1x4v5M8a.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>`;
 }
 
 function socialImageUrl(origin, row) {

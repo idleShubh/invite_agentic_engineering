@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/proposal-page.js": {
+      "includeFiles": "dist/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
