@@ -2,13 +2,16 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowRight,
+  ArrowUpRight,
+  BookOpen,
   CalendarDays,
   Check,
+  Code2,
   Copy,
-  Eye,
   ExternalLink,
   Filter,
   FileText,
+  GraduationCap,
   Link,
   Loader2,
   Mic2,
@@ -18,15 +21,18 @@ import {
   Search,
   Sparkles,
   Sun,
+  Tags,
   Trash2,
+  TrendingUp,
   Upload,
-  Users
+  Users,
+  Wrench
 } from "lucide-react";
-import { generateProposalWithDeepSeek } from "./deepseek";
+import { analyzeProfileWithDeepSeek, generateProposalWithDeepSeek } from "./deepseek";
 import { extractPdfText, fileToDataUrl } from "./pdf";
 import { defaultProposal } from "./sampleData";
 import { deleteStoredGuest, loadGuests, loadProposal, recordProposalView, saveGuest, slugify, updateStoredGuest } from "./storage";
-import { Guest, PipelineStatus, ProposalContent, pipelineStatuses } from "./types";
+import { Guest, PipelineStatus, ProposalContent, ProposalTemplate, pipelineStatuses } from "./types";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -36,6 +42,46 @@ import "./styles.css";
 
 const siteName = "Agentic Engineering";
 const defaultSeoImage = "/agentic-engineering-logo.png";
+const proposalTemplates: Array<{ template: ProposalTemplate; promise: string }> = [
+  { template: "Distribution", promise: "Get your ideas in front of more builders." },
+  { template: "Technical Legacy", promise: "Create a lasting record of how you think." },
+  { template: "Operator's Field Report", promise: "Share hard-earned production lessons." },
+  { template: "Research Exchange", promise: "A serious technical discussion, not a marketing podcast." },
+  { template: "Category Builder", promise: "Help shape the narrative of an emerging category." },
+  { template: "Founding Voice", promise: "Help define the standard for serious engineering conversations." }
+];
+
+type GeneratorDraft = {
+  name: string;
+  role: string;
+  company: string;
+  linkedinUrl: string;
+  photoUrl: string;
+  pdfName: string;
+  pdfText: string;
+  selectedTemplate: ProposalTemplate;
+  recommendedTemplate: ProposalTemplate;
+  recommendationReason: string;
+  researchSignals: string[];
+  confidence: string;
+};
+
+type ProfileResearchState = Pick<GeneratorDraft, "recommendedTemplate" | "recommendationReason" | "researchSignals" | "confidence">;
+
+const emptyGeneratorDraft: GeneratorDraft = {
+  name: "",
+  role: "",
+  company: "",
+  linkedinUrl: "",
+  photoUrl: "",
+  pdfName: "",
+  pdfText: "",
+  selectedTemplate: "Distribution",
+  recommendedTemplate: "Distribution",
+  recommendationReason: "Upload a LinkedIn PDF to get a stronger recommendation.",
+  researchSignals: [],
+  confidence: "Waiting for profile"
+};
 
 function App() {
   const [guests, setGuests] = useState<Guest[]>([]);
@@ -44,6 +90,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [proposalGuest, setProposalGuest] = useState<Guest | undefined>();
+  const [generatorDraft, setGeneratorDraft] = useState<GeneratorDraft>(emptyGeneratorDraft);
   const [pathname, setPathname] = useState(window.location.pathname);
   const proposalSlug = pathname.match(/^\/proposal\/([^/]+)/)?.[1];
   const selectedGuest = guests.find((guest) => guest.id === selectedId) ?? guests[0];
@@ -219,17 +266,18 @@ function App() {
                   <PencilLine size={16} />
                   Edit
                 </button>
-                <a className="primary-button" href={`/proposal/${selectedGuest.slug}`} target="_blank">
-                  <ExternalLink size={16} />
-                  Open proposal
-                </a>
               </div>
             ) : null}
           </header>
 
           <section className="grid-two" id="generator">
-            <GeneratorCard onSave={upsertGuest} />
-            <GuestInspector guest={selectedGuest} onChange={updateGuest} onDelete={deleteGuest} />
+            <GeneratorCard onSave={upsertGuest} onDraftChange={setGeneratorDraft} />
+            <GuestInspector
+              guest={selectedGuest}
+              draft={generatorDraft}
+              onChange={updateGuest}
+              onDelete={deleteGuest}
+            />
           </section>
 
         </section>
@@ -258,7 +306,9 @@ function AppFrame({
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">AE</div>
+          <div className="brand-mark">
+            <img src="/agentic-engineering-logo.png" alt="Agentic Engineering" />
+          </div>
           <div>
             <strong>Agentic Engineering</strong>
             <span>Proposal Generator</span>
@@ -279,10 +329,6 @@ function AppFrame({
               <Moon size={14} />
               Dark
             </button>
-          </div>
-          <div className="sidebar-note">
-            <Sparkles size={16} />
-            DeepSeek drafts run from the backend. Editorial control stays here.
           </div>
           <button className="secondary-button logout-button" onClick={logout}>
             Sign out
@@ -491,17 +537,38 @@ function isPublicShareImage(image: string) {
   return Boolean(image && !image.startsWith("data:"));
 }
 
-function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) {
+function GeneratorCard({
+  onSave,
+  onDraftChange
+}: {
+  onSave: (guest: Guest) => Promise<void>;
+  onDraftChange: (draft: GeneratorDraft) => void;
+}) {
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [company, setCompany] = useState("");
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
   const [pdfName, setPdfName] = useState("");
   const [pdfText, setPdfText] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<ProposalTemplate>("Distribution");
+  const [profileResearch, setProfileResearch] = useState<ProfileResearchState | undefined>();
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const localDraft = analyzeDraftProfile({
+      name,
+      role,
+      company,
+      linkedinUrl,
+      photoUrl,
+      pdfName,
+      pdfText,
+      selectedTemplate
+    });
+    onDraftChange(profileResearch ? { ...localDraft, ...profileResearch } : localDraft);
+  }, [company, linkedinUrl, name, onDraftChange, pdfName, pdfText, photoUrl, profileResearch, role, selectedTemplate]);
 
   async function handlePdf(file?: File) {
     if (!file) return;
@@ -509,9 +576,77 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) 
     setError("");
     try {
       setPdfName(file.name);
-      setPdfText(await extractPdfText(file));
+      const text = await extractPdfText(file);
+      setPdfText(text);
+      setBusy("Analyzing profile");
+
+      const extracted = inferLinkedInProfile(text);
+      const fallbackDraft = analyzeDraftProfile({
+        name: extracted.name,
+        role: extracted.role,
+        company: extracted.company,
+        linkedinUrl: extracted.linkedinUrl,
+        photoUrl,
+        pdfName: file.name,
+        pdfText: text,
+        selectedTemplate
+      });
+
+      const analysis = await analyzeProfileWithDeepSeek({
+        name,
+        role,
+        company,
+        linkedinUrl,
+        pdfText: text
+      });
+
+      const nextName = analysis.name || extracted.name || name;
+      const nextRole = analysis.role || extracted.role || role;
+      const nextCompany = analysis.company || extracted.company || company;
+      const nextLinkedinUrl = analysis.linkedinUrl || extracted.linkedinUrl || linkedinUrl;
+
+      setName(nextName);
+      setRole(nextRole);
+      setCompany(nextCompany);
+      setLinkedinUrl(nextLinkedinUrl);
+      setSelectedTemplate(analysis.recommendedTemplate || fallbackDraft.recommendedTemplate);
+      setProfileResearch({
+        recommendedTemplate: analysis.recommendedTemplate || fallbackDraft.recommendedTemplate,
+        recommendationReason: analysis.recommendationReason || fallbackDraft.recommendationReason,
+        researchSignals: analysis.researchSignals.length ? analysis.researchSignals : fallbackDraft.researchSignals,
+        confidence: "DeepSeek profile research complete"
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not read that PDF.");
+      const message = err instanceof Error ? err.message : "Could not analyze that PDF.";
+      setError(`${message} Local extraction is shown as a fallback.`);
+      try {
+        const text = await extractPdfText(file);
+        const extracted = inferLinkedInProfile(text);
+        const fallbackDraft = analyzeDraftProfile({
+          name: extracted.name,
+          role: extracted.role,
+          company: extracted.company,
+          linkedinUrl: extracted.linkedinUrl,
+          photoUrl,
+          pdfName: file.name,
+          pdfText: text,
+          selectedTemplate
+        });
+        setPdfText(text);
+        setName(extracted.name || name);
+        setRole(extracted.role || role);
+        setCompany(extracted.company || company);
+        setLinkedinUrl(extracted.linkedinUrl || linkedinUrl);
+        setSelectedTemplate(fallbackDraft.recommendedTemplate);
+        setProfileResearch({
+          recommendedTemplate: fallbackDraft.recommendedTemplate,
+          recommendationReason: fallbackDraft.recommendationReason,
+          researchSignals: fallbackDraft.researchSignals,
+          confidence: "Local profile scan"
+        });
+      } catch {
+        setError("Could not read that PDF.");
+      }
     } finally {
       setBusy("");
     }
@@ -533,13 +668,14 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) 
         name: safeName,
         role: safeRole,
         company: safeCompany,
-        linkedinText: pdfText || `${safeName} ${safeRole} ${safeCompany} ${linkedinUrl}`
+        linkedinText: pdfText || `${safeName} ${safeRole} ${safeCompany} ${linkedinUrl}`,
+        template: selectedTemplate
       });
       const now = new Date().toISOString();
       const guest: Guest = {
         id: crypto.randomUUID(),
         name: safeName,
-        email,
+        email: "",
         role: safeRole,
         company: safeCompany,
         linkedinUrl,
@@ -558,13 +694,14 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) 
       };
       await onSave(guest);
       setName("");
-      setEmail("");
       setRole("");
       setCompany("");
       setLinkedinUrl("");
       setPhotoUrl("");
       setPdfName("");
       setPdfText("");
+      setSelectedTemplate("Distribution");
+      setProfileResearch(undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed.");
     } finally {
@@ -581,29 +718,7 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) 
         </div>
         <Sparkles size={22} />
       </div>
-      <div className="field-grid">
-        <label>
-          Guest name
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Anuj Kumar" />
-        </label>
-        <label>
-          Email
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="anuj@company.com" />
-        </label>
-        <label>
-          Role
-          <input value={role} onChange={(event) => setRole(event.target.value)} placeholder="VP of Engineering" />
-        </label>
-        <label>
-          Company
-          <input value={company} onChange={(event) => setCompany(event.target.value)} placeholder="AI Infra Co." />
-        </label>
-        <label>
-          LinkedIn URL
-          <input value={linkedinUrl} onChange={(event) => setLinkedinUrl(event.target.value)} placeholder="https://linkedin.com/in/..." />
-        </label>
-      </div>
-      <div className="upload-row">
+      <div className="upload-row upload-row-primary">
         <label className="upload-drop">
           <FileText size={18} />
           <span>{pdfName || "LinkedIn PDF"}</span>
@@ -615,6 +730,43 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) 
           <input type="file" accept="image/*" onChange={(event) => handlePhoto(event.target.files?.[0])} />
         </label>
       </div>
+      <div className="field-grid">
+        <label>
+          Guest name
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Anuj Kumar" />
+        </label>
+        <label>
+          LinkedIn URL
+          <input value={linkedinUrl} onChange={(event) => setLinkedinUrl(event.target.value)} placeholder="https://linkedin.com/in/..." />
+        </label>
+        <label>
+          Role
+          <input value={role} onChange={(event) => setRole(event.target.value)} placeholder="VP of Engineering" />
+        </label>
+        <label>
+          Company
+          <input value={company} onChange={(event) => setCompany(event.target.value)} placeholder="AI Infra Co." />
+        </label>
+      </div>
+      <div className="template-selector" aria-label="Proposal template">
+        {proposalTemplates.map(({ template, promise }) => {
+          const Icon = templateIcon(template);
+          return (
+            <button
+              key={template}
+              className={selectedTemplate === template ? "active" : ""}
+              type="button"
+              onClick={() => setSelectedTemplate(template)}
+            >
+              <span className="template-title">
+                <Icon size={17} />
+                <strong>{template}</strong>
+              </span>
+              <span>{promise}</span>
+            </button>
+          );
+        })}
+      </div>
       {pdfText ? <p className="extract-note">{pdfText.length.toLocaleString()} characters extracted from PDF.</p> : null}
       {error ? <p className="error">{error}</p> : null}
       <button className="primary-button wide" onClick={generate} disabled={Boolean(busy)}>
@@ -625,17 +777,187 @@ function GeneratorCard({ onSave }: { onSave: (guest: Guest) => Promise<void> }) 
   );
 }
 
+function inferLinkedInProfile(text: string) {
+  const lines = profileLines(text);
+  const linkedinUrl = text.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[^\s)]+/i)?.[0] || "";
+  const headlineIndex = lines.findIndex((line) => isRoleCompanyLine(line));
+  const nameIndex =
+    headlineIndex > 0
+      ? findNearestNameBefore(lines, headlineIndex)
+      : lines.findIndex((line, index) => index < 40 && isLikelyName(line));
+  const nameLine = nameIndex >= 0 ? lines[nameIndex] : "";
+  const headlineWindow = nameIndex >= 0 ? lines.slice(nameIndex + 1, nameIndex + 12) : lines.slice(0, 20);
+  const headlineLine = headlineIndex >= 0 ? lines[headlineIndex] : headlineWindow.find((line) => isRoleCompanyLine(line)) || "";
+  const roleCompany = splitRoleCompany(headlineLine);
+  const experienceFallback = roleCompany.role && roleCompany.company ? roleCompany : inferExperienceRoleCompany(lines);
+
+  return {
+    name: nameLine,
+    role: experienceFallback.role,
+    company: experienceFallback.company,
+    linkedinUrl
+  };
+}
+
+function findNearestNameBefore(lines: string[], index: number) {
+  for (let i = index - 1; i >= Math.max(0, index - 8); i -= 1) {
+    if (isLikelyName(lines[i])) return i;
+  }
+  return -1;
+}
+
+function analyzeDraftProfile(input: Omit<GeneratorDraft, "recommendedTemplate" | "recommendationReason" | "researchSignals" | "confidence">): GeneratorDraft {
+  const researchSignals = buildResearchSignals(input);
+  const recommendedTemplate = recommendProposalTemplate(input);
+  const template = proposalTemplates.find((item) => item.template === recommendedTemplate);
+  const hasProfile = Boolean(input.name || input.role || input.company || input.pdfText || input.linkedinUrl);
+
+  return {
+    ...input,
+    recommendedTemplate,
+    recommendationReason: hasProfile
+      ? template?.promise || "This template best matches the available profile context."
+      : "Upload a LinkedIn PDF to get a stronger recommendation.",
+    researchSignals,
+    confidence: input.pdfText ? `${input.pdfText.length.toLocaleString()} PDF characters analyzed` : "Waiting for LinkedIn PDF"
+  };
+}
+
+function profileLines(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((line) => line.length < 140);
+}
+
+function isLikelyName(line: string) {
+  const blocked =
+    /(linkedin|contact|experience|education|activity|about|skills|followers|connections|www\.|@|http|public speaking|research|publications|languages|summary)/i;
+  return !blocked.test(line) && /^[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3}$/.test(line);
+}
+
+function isSectionLabel(line: string) {
+  return /^(about|activity|experience|education|licenses|skills|projects|publications|contact|recommendations)$/i.test(line);
+}
+
+function isRoleCompanyLine(line: string) {
+  if (!/\b(at|@)\b/i.test(line) || /linkedin\.com|@.+\.|worked|built|drove|managed|supported|provided|launched/i.test(line)) return false;
+  const match = line.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);
+  if (!match) return false;
+  const before = match[1].trim();
+  const after = match[2].trim();
+  return before.length <= 60 && after.length <= 60 && !/^(a|an|the|early|late)\b/i.test(after) && /^[A-Z0-9]/.test(before);
+}
+
+function inferExperienceRoleCompany(lines: string[]) {
+  const experienceIndex = lines.findIndex((line) => /^experience$/i.test(line));
+  const scoped = experienceIndex >= 0 ? lines.slice(experienceIndex + 1, experienceIndex + 12) : lines.slice(0, 30);
+  const companyIndex = scoped.findIndex((line, index) => index < 5 && isLikelyCompanyName(line));
+  const companyLine = companyIndex >= 0 ? scoped[companyIndex] : "";
+  const titleIndex = scoped.slice(Math.max(companyIndex + 1, 0), Math.max(companyIndex + 6, 6)).findIndex((line) => isLikelyRoleTitle(line));
+  if (titleIndex < 0) return { role: "", company: "" };
+  const titleLine = scoped[Math.max(companyIndex + 1, 0) + titleIndex];
+  return {
+    role: cleanRoleTitle(titleLine),
+    company: cleanCompanyName(companyLine)
+  };
+}
+
+function isLikelyRoleTitle(line: string) {
+  if (isSectionLabel(line) || isMetadataLine(line) || line.startsWith("–") || line.startsWith("-")) return false;
+  return /\b(founder|co-founder|ceo|cto|vp|head|director|engineer|scientist|researcher|manager|lead|architect|associate|intern|consultant|professor|staff)\b/i.test(line);
+}
+
+function isLikelyCompanyName(line: string) {
+  if (isSectionLabel(line) || isMetadataLine(line) || line.startsWith("–") || line.startsWith("-")) return false;
+  if (!/^[A-Z0-9]/.test(line) || /[.!?]$/.test(line)) return false;
+  if (/\b(company|initiative|worked|built|drove|managed|supported|provided|launched|directly|across)\b/i.test(line)) return false;
+  return line.length <= 70 && !/\b(on-site|onsite|remote|hybrid|india|japan|united states|present|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{4})\b/i.test(line);
+}
+
+function isMetadataLine(line: string) {
+  return /^(full-time|part-time|contract|internship|self-employed|freelance|present|\d{4}|[A-Z][a-z]{2}\s+\d{4})/i.test(line);
+}
+
+function splitRoleCompany(line: string) {
+  const normalized = line.replace(/\s+[|•].*$/, "").trim();
+  const match = normalized.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);
+  if (!match) return { role: "", company: "" };
+  return {
+    role: cleanProfileValue(match[1]),
+    company: cleanProfileValue(match[2])
+  };
+}
+
+function cleanProfileValue(value: string) {
+  return value.replace(/\s+-\s+.*$/, "").replace(/\s{2,}/g, " ").trim();
+}
+
+function cleanRoleTitle(value: string) {
+  return cleanProfileValue(value)
+    .replace(/\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}.*$/i, "")
+    .replace(/\s+\d{4}\s*[–-].*$/i, "")
+    .trim();
+}
+
+function cleanCompanyName(value: string) {
+  return cleanProfileValue(value).replace(/\s{2,}.*/, "").trim();
+}
+
+function buildResearchSignals(input: Pick<GeneratorDraft, "name" | "role" | "company" | "linkedinUrl" | "pdfText">) {
+  const text = input.pdfText;
+  const lower = `${input.name} ${input.role} ${input.company} ${text}`.toLowerCase();
+  const signals: string[] = [];
+
+  if (input.role || input.company) signals.push(`${input.role || "Technical leader"}${input.company ? ` at ${input.company}` : ""}`);
+  if (/\b(phd|doctor of philosophy|university|iit|stanford|mit|research|scientist|professor|paper|publication)\b/i.test(text)) {
+    signals.push(findLine(text, /\b(phd|doctor of philosophy|university|research|scientist|professor|paper|publication)\b/i) || "Strong research and academic signal in the profile");
+  }
+  if (/\b(founder|co-founder|ceo|built|launched|started)\b/i.test(lower)) {
+    signals.push(findLine(text, /\b(founder|co-founder|ceo|built|launched|started)\b/i) || "Founder/operator background shows a strong personal story");
+  }
+  if (/\b(funding|backed|investor|vc|accelerator|y combinator|alchemist|sequoia|accel|a16z)\b/i.test(lower)) {
+    signals.push(findLine(text, /\b(funding|backed|investor|vc|accelerator|y combinator|alchemist|sequoia|accel|a16z)\b/i) || "Funding and network signals can support a stronger founder narrative");
+  }
+  if (/\b(scale|millions|orders|latency|infrastructure|platform|commerce|fintech|logistics|reliability|systems)\b/i.test(lower)) {
+    signals.push(findLine(text, /\b(scale|millions|orders|latency|infrastructure|platform|commerce|fintech|logistics|reliability|systems)\b/i) || "Operating context suggests production lessons worth unpacking");
+  }
+  if (input.linkedinUrl) signals.push("LinkedIn URL added for profile-specific context");
+
+  return Array.from(new Set(signals)).slice(0, 5);
+}
+
+function findLine(text: string, pattern: RegExp) {
+  return profileLines(text).find((line) => pattern.test(line));
+}
+
+function recommendProposalTemplate(input: Pick<GeneratorDraft, "role" | "company" | "pdfText">): ProposalTemplate {
+  const lower = `${input.role} ${input.company} ${input.pdfText}`.toLowerCase();
+  if (/\b(research|scientist|applied scientist|technical staff|phd|paper|publication|professor|lab)\b/.test(lower)) return "Research Exchange";
+  if (/\b(cto|vp engineering|head of engineering|infrastructure|platform|commerce|fintech|logistics|reliability|scale|latency|orders)\b/.test(lower)) {
+    return "Operator's Field Report";
+  }
+  if (/\b(100k|industry authority|keynote|creator|newsletter|large audience|thought leader)\b/.test(lower)) return "Founding Voice";
+  if (/\b(founder|co-founder|ceo|visionary|category)\b/.test(lower)) return "Category Builder";
+  if (/\b(principal|staff engineer|architect|fellow)\b/.test(lower)) return "Technical Legacy";
+  return "Distribution";
+}
+
 function GuestInspector({
   guest,
+  draft,
   onChange,
   onDelete
 }: {
   guest?: Guest;
+  draft: GeneratorDraft;
   onChange: (id: string, patch: Partial<Guest>) => void;
   onDelete: (id: string) => void;
 }) {
+  if (hasActiveDraft(draft)) return <DraftResearchPanel draft={draft} />;
   if (!guest) return <EmptyState />;
-  const shareUrl = `${window.location.origin}/proposal/${guest.slug}`;
+  const proposal = withProposalDefaults(guest.proposal, guest.name, guest.role, guest.company);
 
   return (
     <section className="panel inspector-panel">
@@ -647,36 +969,87 @@ function GuestInspector({
           <p>{guest.role} · {guest.company}</p>
         </div>
       </div>
-      <div className="metrics-row">
-        <Stat value={guest.status} label="Pipeline" />
-        <Stat value={guest.viewed.toString()} label="Views" />
-        <Stat value={guest.published ? "Live" : "Draft"} label="Proposal" />
-      </div>
-      <label>
-        Pipeline stage
-        <select value={guest.status} onChange={(event) => onChange(guest.id, { status: event.target.value as PipelineStatus })}>
-          {pipelineStatuses.map((status) => (
-            <option key={status}>{status}</option>
-          ))}
-        </select>
-      </label>
-      <div className="share-box">
-        <Link size={16} />
-        <span>{shareUrl}</span>
-        <button onClick={() => navigator.clipboard.writeText(shareUrl)} title="Copy proposal link">
-          <Copy size={15} />
-        </button>
-      </div>
-      <button className="secondary-button" onClick={() => onChange(guest.id, { published: !guest.published })}>
-        <Check size={16} />
-        {guest.published ? "Mark as draft" : "Publish proposal"}
-      </button>
-      <button className="secondary-button danger-button" onClick={() => onDelete(guest.id)}>
-        <Trash2 size={16} />
-        Delete profile
-      </button>
+      <a className="primary-button inspector-open-button" href={`/proposal/${guest.slug}`} target="_blank">
+        <ExternalLink size={16} />
+        Open proposal
+      </a>
+      <ResearchSignalList signals={proposal.researchSignals} />
+      <RecommendedTemplateCard template={proposal.strategy.template} reason={proposal.strategy.corePromise} />
     </section>
   );
+}
+
+function DraftResearchPanel({ draft }: { draft: GeneratorDraft }) {
+  return (
+    <section className="panel inspector-panel">
+      <div className="profile-card">
+        {draft.photoUrl ? <img src={draft.photoUrl} alt={draft.name || "Guest"} /> : <div className="avatar-placeholder"><Users size={18} /></div>}
+        <div>
+          <p className="eyebrow">Guest research</p>
+          <h2>{draft.name || "Upload a profile"}</h2>
+          <p>{[draft.role, draft.company].filter(Boolean).join(" · ") || draft.confidence}</p>
+        </div>
+      </div>
+      <ResearchSignalList signals={draft.researchSignals} />
+      <RecommendedTemplateCard template={draft.recommendedTemplate} reason={draft.recommendationReason} />
+    </section>
+  );
+}
+
+function hasActiveDraft(draft: GeneratorDraft) {
+  return Boolean(draft.name || draft.role || draft.company || draft.linkedinUrl || draft.pdfName || draft.photoUrl || draft.pdfText);
+}
+
+function ResearchSignalList({ signals }: { signals: string[] }) {
+  const icons = [GraduationCap, Wrench, Users, TrendingUp, BookOpen];
+  return (
+    <div className="research-list">
+      {signals.length ? (
+        signals.map((signal, index) => {
+          const Icon = icons[index % icons.length];
+          return (
+            <div className="research-row" key={`${signal}-${index}`}>
+              <Icon size={17} />
+              <span>{signal}</span>
+            </div>
+          );
+        })
+      ) : (
+        <div className="research-empty">
+          <FileText size={18} />
+          Upload a LinkedIn PDF to extract role, company, research signals, and a template recommendation.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecommendedTemplateCard({ template, reason }: { template: ProposalTemplate; reason: string }) {
+  const Icon = templateIcon(template);
+  return (
+    <div className="recommendation-card">
+      <p className="eyebrow">Recommended template</p>
+      <div>
+        <div className="recommendation-icon">
+          <Icon size={18} />
+        </div>
+        <span>
+          <strong>{template}</strong>
+          <small>{reason}</small>
+        </span>
+        <ArrowUpRight size={17} />
+      </div>
+    </div>
+  );
+}
+
+function templateIcon(template: ProposalTemplate) {
+  if (template === "Technical Legacy") return Code2;
+  if (template === "Operator's Field Report") return TrendingUp;
+  if (template === "Research Exchange") return BookOpen;
+  if (template === "Category Builder") return Tags;
+  if (template === "Founding Voice") return Mic2;
+  return Wrench;
 }
 
 function PipelinePage({
@@ -1040,6 +1413,86 @@ function ProposalEditor({
         Crisp researched intro
         <textarea value={proposal.heroIntro} onChange={(event) => updateProposal({ heroIntro: event.target.value })} />
       </label>
+      <div className="editor-split">
+        <label>
+          Proposal strategy
+          <select
+            value={proposal.strategy.template}
+            onChange={(event) =>
+              updateProposal({
+                strategy: {
+                  ...proposal.strategy,
+                  template: event.target.value as ProposalContent["strategy"]["template"]
+                }
+              })
+            }
+          >
+            {[
+              "Distribution",
+              "Technical Legacy",
+              "Operator's Field Report",
+              "Research Exchange",
+              "Category Builder",
+              "Founding Voice"
+            ].map((template) => (
+              <option key={template}>{template}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Core promise
+          <input
+            value={proposal.strategy.corePromise}
+            onChange={(event) =>
+              updateProposal({ strategy: { ...proposal.strategy, corePromise: event.target.value } })
+            }
+          />
+        </label>
+      </div>
+      <label>
+        Why them
+        <textarea value={proposal.whyThem} onChange={(event) => updateProposal({ whyThem: event.target.value })} />
+      </label>
+      <label>
+        Why now
+        <textarea value={proposal.whyNow} onChange={(event) => updateProposal({ whyNow: event.target.value })} />
+      </label>
+      <label>
+        Editorial thesis
+        <textarea value={proposal.editorialThesis} onChange={(event) => updateProposal({ editorialThesis: event.target.value })} />
+      </label>
+      <label>
+        Supporting angles
+        <textarea
+          value={proposal.supportingAngles.join("\n")}
+          onChange={(event) => updateProposal({ supportingAngles: event.target.value.split("\n").filter(Boolean) })}
+        />
+      </label>
+      <label>
+        Research signals
+        <textarea
+          value={proposal.researchSignals.join("\n")}
+          onChange={(event) => updateProposal({ researchSignals: event.target.value.split("\n").filter(Boolean) })}
+        />
+      </label>
+      <label>
+        Observation
+        <textarea value={proposal.observation} onChange={(event) => updateProposal({ observation: event.target.value })} />
+      </label>
+      <label>
+        Sharp question
+        <textarea value={proposal.sharpQuestion} onChange={(event) => updateProposal({ sharpQuestion: event.target.value })} />
+      </label>
+      <div className="editor-split">
+        <label>
+          How they help us
+          <textarea value={proposal.howTheyHelpUs} onChange={(event) => updateProposal({ howTheyHelpUs: event.target.value })} />
+        </label>
+        <label>
+          How we help them
+          <textarea value={proposal.howWeHelpThem} onChange={(event) => updateProposal({ howWeHelpThem: event.target.value })} />
+        </label>
+      </div>
       <label>
         Episode title
         <input value={proposal.episodeTitle} onChange={(event) => updateProposal({ episodeTitle: event.target.value })} />
@@ -1105,6 +1558,9 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
   const proposalTitle = `${guest.name} Podcast Invitation | Agentic Engineering`;
   const proposalDescription = `A personalized Agentic Engineering podcast proposal for ${guest.name}, ${guest.role} at ${guest.company}, with audience context, episode topics, and booking details.`;
   const proposalImage = isPublicShareImage(guest.photoUrl) ? guest.photoUrl : defaultSeoImage;
+  const proposalSkin = templateClassName(proposal.strategy.template);
+  const proposalFrame = proposalFrameForTemplate(proposal.strategy.template);
+  const proposalReasons = proposalReasonsForTemplate(proposal.reasons, proposalFrame, proposal.strategy.template);
 
   return (
     <>
@@ -1139,7 +1595,7 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
           }
         }}
       />
-      <main className="proposal-page">
+      <main className={`proposal-page ${proposalSkin} proposal-layout-${proposalFrame.layout}`}>
         <ThemeSwitch className="proposal-theme-switch" />
         <section className="proposal-hero">
         <div className="proposal-hero-copy">
@@ -1147,9 +1603,9 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
           <h1>{proposal.heroHeadline}</h1>
           <p>{proposal.heroIntro}</p>
           <div className="hero-stats">
-            <Stat value="170+" label="CTOs & VPs in community" />
-            <Stat value="Active" label="Decision-makers" />
-            <Stat value="Growing" label="Agentic engineering community" />
+            {proposalFrame.heroStats.map((stat) => (
+              <Stat key={stat.value} value={stat.value} label={stat.label} />
+            ))}
           </div>
         </div>
         <aside className="hero-guest-card">
@@ -1162,22 +1618,25 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
         </aside>
         </section>
 
-      <ProposalBand label="The audience" title="You are not talking to an audience. You are talking to a room of buyers.">
+      <ProposalBand label={proposalFrame.positioningLabel} title={proposalFrame.positioningTitle}>
         <div className="audience-grid">
-          {["CTOs", "VPs of Engineering", "Staff Engineers", "AI-native founders"].map((item) => (
-            <div className="mini-card" key={item}>
-              <Mic2 size={18} />
-              <strong>{item}</strong>
-              <span>People evaluating what to build, buy, deploy, and trust.</span>
-            </div>
-          ))}
+          {proposalFrame.positioningCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <div className="mini-card" key={card.title}>
+                <Icon size={18} />
+                <strong>{card.title}</strong>
+                <span>{card.body}</span>
+              </div>
+            );
+          })}
         </div>
-        <blockquote>{proposal.audienceQuote}</blockquote>
+        <blockquote>{proposalFrame.positioningQuote || proposal.audienceQuote}</blockquote>
       </ProposalBand>
 
-      <ProposalBand label="Why you" title="Three reasons to say yes.">
+      <ProposalBand label={proposalFrame.reasonLabel} title={proposalFrame.reasonTitle}>
         <div className="reason-grid">
-          {proposal.reasons.slice(0, 3).map((reason, index) => (
+          {proposalReasons.map((reason, index) => (
             <div className="reason-card" key={reason.title}>
               <span>{String(index + 1).padStart(2, "0")}</span>
               <h3>{reason.title}</h3>
@@ -1187,8 +1646,40 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
         </div>
       </ProposalBand>
 
-      <ProposalBand label="What we'd cover" title="Real systems. Real problems. No hype.">
-        <p className="section-copy">A proposed episode: <strong>{proposal.episodeTitle}</strong></p>
+      <ProposalBand label={proposalFrame.proofLabel} title={proposalFrame.proofTitle}>
+        <div className="proof-grid">
+          <div className="proof-card">
+            <p className="proposal-label">{proposalFrame.signalLabel}</p>
+            {proposal.researchSignals.slice(0, 5).map((signal) => (
+              <span key={signal}>{signal}</span>
+            ))}
+          </div>
+          <div className="proof-card">
+            <p className="proposal-label">Observation</p>
+            <strong>{proposal.observation}</strong>
+          </div>
+          <div className="proof-card">
+            <p className="proposal-label">Sharp question</p>
+            <strong>{proposal.sharpQuestion}</strong>
+          </div>
+        </div>
+      </ProposalBand>
+
+      <ProposalBand label={proposalFrame.episodeLabel} title={proposal.episodeTitle}>
+        <div className="episode-brief">
+          <p>{proposal.editorialThesis}</p>
+        </div>
+        {proposalFrame.showAngles ? (
+          <div className="angle-list proposal-angle-list">
+            {proposal.supportingAngles.slice(0, 5).map((angle, index) => (
+              <div className="angle-row" key={angle}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <p>{angle}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <p className="section-copy">{proposalFrame.topicIntro}</p>
         <div className="topic-cloud">
           {proposal.topics.map((topic) => (
             <span key={topic}>{topic}</span>
@@ -1294,7 +1785,452 @@ function withProposalDefaults(
   company: string
 ): ProposalContent {
   const defaults = defaultProposal(name, role, company);
-  return { ...defaults, ...proposal, previousEpisodes: defaults.previousEpisodes };
+  const merged = {
+    ...defaults,
+    ...proposal,
+    strategy: {
+      ...defaults.strategy,
+      ...proposal.strategy,
+      primaryMotivations: proposal.strategy?.primaryMotivations?.length
+        ? proposal.strategy.primaryMotivations
+        : defaults.strategy.primaryMotivations
+    },
+    previousEpisodes: defaults.previousEpisodes
+  };
+  return makeProposalGuestFacing(merged, name);
+}
+
+function templateClassName(template: ProposalContent["strategy"]["template"]) {
+  return `proposal-${template.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
+}
+
+type ProposalFrame = {
+  layout: string;
+  heroStats: Array<{ value: string; label: string }>;
+  positioningLabel: string;
+  positioningTitle: string;
+  positioningQuote: string;
+  positioningCards: Array<{
+    title: string;
+    body: string;
+    icon: React.ComponentType<{ size?: number }>;
+  }>;
+  reasonLabel: string;
+  reasonTitle: string;
+  proofLabel: string;
+  proofTitle: string;
+  signalLabel: string;
+  episodeLabel: string;
+  topicIntro: string;
+  showAngles: boolean;
+  fallbackReasons: Array<{ title: string; body: string }>;
+};
+
+function proposalFrameForTemplate(template: ProposalContent["strategy"]["template"]): ProposalFrame {
+  if (template === "Research Exchange") {
+    return {
+      layout: "research",
+      heroStats: [
+        { value: "Peers", label: "Technical listeners" },
+        { value: "Depth", label: "No simplified takes" },
+        { value: "Buildable", label: "Ideas into systems" }
+      ],
+      positioningLabel: "Why this room",
+      positioningTitle: "A technical conversation for people who can actually follow the idea.",
+      positioningQuote:
+        "You would be speaking to people technical enough to follow the details and practical enough to build from them.",
+      positioningCards: [
+        {
+          title: "Peer-level listeners",
+          body: "Researchers, applied builders, and technical leaders who care about the details, not just the headline.",
+          icon: GraduationCap
+        },
+        {
+          title: "No marketing layer",
+          body: "We keep the conversation close to the work: assumptions, failures, trade-offs, and what the research unlocks.",
+          icon: BookOpen
+        },
+        {
+          title: "Buildable translation",
+          body: "The goal is to help serious builders understand what they can test, adapt, or question from your work.",
+          icon: Wrench
+        },
+        {
+          title: "Durable explanation",
+          body: "You leave with a clear public artifact that captures the idea without flattening the technical nuance.",
+          icon: FileText
+        }
+      ],
+      reasonLabel: "Why this is worth your time",
+      reasonTitle: "Three reasons to bring the idea here.",
+      proofLabel: "Research fit",
+      proofTitle: "We are starting from the work, not a generic guest bio.",
+      signalLabel: "Signals we will build from",
+      episodeLabel: "Discussion map",
+      topicIntro: "Potential technical threads we would explore with you:",
+      showAngles: true,
+      fallbackReasons: [
+        {
+          title: "A serious technical room",
+          body: "The point is not reach for its own sake. It is a conversation with people who can follow the research and ask useful questions."
+        },
+        {
+          title: "Translate without flattening",
+          body: "We help turn the core idea into a clear public explanation while preserving the assumptions, limits, and technical nuance."
+        },
+        {
+          title: "Make the idea buildable",
+          body: "The episode should give applied builders enough context to test, adapt, or challenge the work in real systems."
+        }
+      ]
+    };
+  }
+
+  if (template === "Operator's Field Report") {
+    return {
+      layout: "operator",
+      heroStats: [
+        { value: "CTOs", label: "Fellow operators" },
+        { value: "Systems", label: "Production reality" },
+        { value: "Trade-offs", label: "No demo theater" }
+      ],
+      positioningLabel: "Why this operator room",
+      positioningTitle: "Trade notes with people making the same hard calls.",
+      positioningQuote:
+        "You would be speaking to fellow CTOs, AI tinkerers, and engineering operators who care about what survives contact with production.",
+      positioningCards: [
+        {
+          title: "Fellow CTOs",
+          body: "Engineering leaders and AI tinkerers comparing what actually survives inside teams and systems.",
+          icon: Users
+        },
+        {
+          title: "Production lessons",
+          body: "Reliability, security, cost, governance, team adoption, and the messy parts most talks skip.",
+          icon: Wrench
+        },
+        {
+          title: "Useful replay value",
+          body: "A conversation other operators can replay when they hit the same decision point.",
+          icon: FileText
+        },
+        {
+          title: "Hard-earned judgment",
+          body: "We put your operating taste at the center, not a surface-level founder story.",
+          icon: TrendingUp
+        }
+      ],
+      reasonLabel: "Why operators listen",
+      reasonTitle: "Three reasons this should not feel like another podcast slot.",
+      proofLabel: "Operating context",
+      proofTitle: "We will anchor the episode in the decisions only you can explain.",
+      signalLabel: "Operating signals",
+      episodeLabel: "Field report",
+      topicIntro: "Potential operating questions we would pressure-test with you:",
+      showAngles: true,
+      fallbackReasons: [
+        {
+          title: "Talk to people with the same scars",
+          body: "This is for CTOs and operators who know the gap between a promising demo and a system a team can actually trust."
+        },
+        {
+          title: "Share the decision logic",
+          body: "The useful part is how you chose trade-offs around reliability, cost, security, process, and adoption."
+        },
+        {
+          title: "Create a field note others replay",
+          body: "A good operator episode becomes a reference point for teams about to face the same constraints."
+        }
+      ]
+    };
+  }
+
+  if (template === "Category Builder") {
+    return {
+      layout: "category",
+      heroStats: [
+        { value: "Narrative", label: "Category language" },
+        { value: "Builders", label: "Founder/operator peers" },
+        { value: "Asset", label: "Reusable thesis" }
+      ],
+      positioningLabel: "Why this category moment",
+      positioningTitle: "Turn your point of view into the clearest version of the category.",
+      positioningQuote:
+        "You would be speaking to builders and technical operators who are trying to name this shift while they are living through it.",
+      positioningCards: [
+        {
+          title: "Narrative ownership",
+          body: "We help sharpen the language around the market you are building, not just introduce the company.",
+          icon: Tags
+        },
+        {
+          title: "Founder peers",
+          body: "The room is builders, operators, and technical leaders who can become believers, collaborators, or critics.",
+          icon: Users
+        },
+        {
+          title: "Market timing",
+          body: "The episode frames why this shift matters now and what old assumptions are breaking.",
+          icon: TrendingUp
+        },
+        {
+          title: "Reusable thesis",
+          body: "You leave with a public artifact your team can reuse when explaining the category.",
+          icon: FileText
+        }
+      ],
+      reasonLabel: "Why shape it here",
+      reasonTitle: "Three reasons this helps the category, not just the episode.",
+      proofLabel: "Narrative research",
+      proofTitle: "We will connect your story to the category shift around it.",
+      signalLabel: "Category signals",
+      episodeLabel: "Proposed thesis",
+      topicIntro: "Potential category angles we would discuss with you:",
+      showAngles: false,
+      fallbackReasons: [
+        {
+          title: "Define the category language",
+          body: "You get to explain the shift in your own words before the market reduces it to shallow labels."
+        },
+        {
+          title: "Find aligned builders",
+          body: "The room is technical enough to understand the category and practical enough to push on what it means in the field."
+        },
+        {
+          title: "Leave with a reusable thesis",
+          body: "The conversation becomes a sharper artifact for your team, customers, candidates, and category believers."
+        }
+      ]
+    };
+  }
+
+  if (template === "Founding Voice") {
+    return {
+      layout: "founding",
+      heroStats: [
+        { value: "Signal", label: "Prepared conversation" },
+        { value: "Standard", label: "Raise the bar" },
+        { value: "Artifact", label: "Worth pointing to" }
+      ],
+      positioningLabel: "Why this invitation",
+      positioningTitle: "A prepared conversation that respects what you have already built.",
+      positioningQuote:
+        "This is not a reach play. It is a prepared conversation designed to be worth pointing serious builders toward afterward.",
+      positioningCards: [
+        {
+          title: "No generic circuit",
+          body: "We do not need another broad AI take. We want the specific judgment behind your work.",
+          icon: Sparkles
+        },
+        {
+          title: "Editorial seriousness",
+          body: "The prep is designed to make the conversation worth your time and useful after it airs.",
+          icon: BookOpen
+        },
+        {
+          title: "Field standard",
+          body: "Your perspective can help define what serious agentic engineering conversations should sound like.",
+          icon: Check
+        },
+        {
+          title: "Reusable record",
+          body: "The output is a clean asset you can share when people ask how you think about the field.",
+          icon: FileText
+        }
+      ],
+      reasonLabel: "Why say yes",
+      reasonTitle: "Three reasons this respects your time.",
+      proofLabel: "Prepared angle",
+      proofTitle: "We will bring a point of view, not a blank interview doc.",
+      signalLabel: "What we studied",
+      episodeLabel: "Editorial premise",
+      topicIntro: "Potential standards-setting threads we would explore:",
+      showAngles: true,
+      fallbackReasons: [
+        {
+          title: "A conversation with a point of view",
+          body: "We come prepared with an angle strong enough to make the episode worth your time."
+        },
+        {
+          title: "Set a higher bar",
+          body: "Your perspective can help define what serious agentic engineering conversations should sound like."
+        },
+        {
+          title: "Create something worth sharing",
+          body: "The output should feel like a clear record of your thinking, not a disposable podcast appearance."
+        }
+      ]
+    };
+  }
+
+  if (template === "Technical Legacy") {
+    return {
+      layout: "legacy",
+      heroStats: [
+        { value: "Taste", label: "How you reason" },
+        { value: "Record", label: "Durable thinking" },
+        { value: "Depth", label: "Trade-offs preserved" }
+      ],
+      positioningLabel: "Why record this",
+      positioningTitle: "Capture the technical judgment behind the work.",
+      positioningQuote:
+        "You would be creating a durable record of the principles and trade-offs that shaped your technical decisions.",
+      positioningCards: [
+        {
+          title: "Principles over headlines",
+          body: "We focus on the decisions, constraints, and taste that shaped your technical path.",
+          icon: Code2
+        },
+        {
+          title: "A useful record",
+          body: "The episode becomes something future builders can return to, not a one-week content hit.",
+          icon: BookOpen
+        },
+        {
+          title: "Deep trade-offs",
+          body: "Architecture, reliability, tooling, and judgment get room to breathe.",
+          icon: Wrench
+        },
+        {
+          title: "Practitioner respect",
+          body: "The conversation assumes competence and spends time where the real decisions live.",
+          icon: Users
+        }
+      ],
+      reasonLabel: "Why preserve it now",
+      reasonTitle: "Three reasons your thinking is worth recording.",
+      proofLabel: "Technical context",
+      proofTitle: "We will build from your actual decisions and constraints.",
+      signalLabel: "Signals we will preserve",
+      episodeLabel: "Technical record",
+      topicIntro: "Potential principles and trade-offs we would unpack:",
+      showAngles: true,
+      fallbackReasons: [
+        {
+          title: "Preserve how you think",
+          body: "The best part of the episode is not a recap of what you built, it is the reasoning behind the choices."
+        },
+        {
+          title: "Go deep on trade-offs",
+          body: "We make room for constraints, taste, architecture, and the judgment that only shows up after real work."
+        },
+        {
+          title: "Give future builders a record",
+          body: "The conversation becomes something technical people can return to when facing similar decisions."
+        }
+      ]
+    };
+  }
+
+  return {
+    layout: "distribution",
+    heroStats: [
+      { value: "Builders", label: "Relevant reach" },
+      { value: "Clips", label: "Reusable assets" },
+      { value: "Clear", label: "No fluff story" }
+    ],
+    positioningLabel: "Why Agentic Engineering",
+    positioningTitle: "Get your ideas in front of builders who can use them.",
+    positioningQuote: "",
+    positioningCards: [
+      {
+        title: "Relevant builders",
+        body: "Founders, engineers, and operators actively learning how agentic workflows are changing teams.",
+        icon: Users
+      },
+      {
+        title: "Clear positioning",
+        body: "We help make your product, insight, or operating lesson easy for technical people to understand.",
+        icon: Mic2
+      },
+      {
+        title: "Reusable assets",
+        body: "A focused episode, summary, and clips your team can reuse after recording.",
+        icon: FileText
+      },
+      {
+        title: "Practical conversation",
+        body: "We keep it specific, useful, and grounded in what you are actually building.",
+        icon: Sparkles
+      }
+    ],
+    reasonLabel: "Why join us",
+    reasonTitle: "Three reasons to come on Agentic Engineering.",
+    proofLabel: "We did the homework",
+    proofTitle: "The conversation starts from your actual context.",
+    signalLabel: "What we noticed",
+    episodeLabel: "Proposed episode",
+    topicIntro: "Potential topics we would discuss with you:",
+    showAngles: false,
+    fallbackReasons: [
+      {
+        title: "Reach relevant builders",
+        body: "The audience is technical enough to understand what you are building and practical enough to try it."
+      },
+      {
+        title: "Make the idea easier to share",
+        body: "We help turn your point of view into a clear episode, summary, and clips your team can reuse."
+      },
+      {
+        title: "Keep the conversation practical",
+        body: "The episode stays focused on what you have learned, what works, and what builders can take away."
+      }
+    ]
+  };
+}
+
+function proposalReasonsForTemplate(
+  reasons: ProposalContent["reasons"],
+  frame: ProposalFrame,
+  template: ProposalContent["strategy"]["template"]
+) {
+  const available = reasons.slice(0, 3);
+  if (template !== "Research Exchange") {
+    return available.length === 3 ? available : frame.fallbackReasons;
+  }
+
+  const forbidden = /\b(reach|buyers?|customers?|sell|pipeline|audience of|companies like|stripe|databricks|cto'?s?|decision-makers?)\b/i;
+  const cleaned = available.map((reason, index) => {
+    const text = `${reason.title} ${reason.body}`;
+    return forbidden.test(text) ? frame.fallbackReasons[index] : reason;
+  });
+  return cleaned.length === 3 ? cleaned : frame.fallbackReasons;
+}
+
+function makeProposalGuestFacing(proposal: ProposalContent, name: string): ProposalContent {
+  return {
+    ...proposal,
+    audienceQuote: secondPersonCopy(proposal.audienceQuote, name),
+    whyThem: secondPersonCopy(proposal.whyThem, name),
+    whyNow: secondPersonCopy(proposal.whyNow, name),
+    editorialThesis: secondPersonCopy(proposal.editorialThesis, name),
+    supportingAngles: proposal.supportingAngles.map((angle) => secondPersonCopy(angle, name)),
+    observation: secondPersonCopy(proposal.observation, name),
+    sharpQuestion: secondPersonCopy(proposal.sharpQuestion, name),
+    howTheyHelpUs: secondPersonCopy(proposal.howTheyHelpUs, name),
+    howWeHelpThem: secondPersonCopy(proposal.howWeHelpThem, name),
+    reasons: proposal.reasons.map((reason) => ({
+      title: secondPersonCopy(reason.title, name),
+      body: secondPersonCopy(reason.body, name)
+    })),
+    personalizedCta: secondPersonCopy(proposal.personalizedCta, name)
+  };
+}
+
+function secondPersonCopy(value: string, name: string) {
+  if (!value) return value;
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value
+    .replace(new RegExp(`${escapedName}\\s+is\\s+`, "gi"), "You are ")
+    .replace(new RegExp(`${escapedName}\\s+has\\s+`, "gi"), "You have ")
+    .replace(new RegExp(`${escapedName}\\s+brings\\s+`, "gi"), "You bring ")
+    .replace(new RegExp(`${escapedName}\\s+can\\s+`, "gi"), "You can ")
+    .replace(new RegExp(`${escapedName}'s\\s+`, "gi"), "Your ")
+    .replace(/\bthis guest\b/gi, "you")
+    .replace(/\btheir work\b/gi, "your work")
+    .replace(/\btheir perspective\b/gi, "your perspective")
+    .replace(/\btheir judgment\b/gi, "your judgment")
+    .replace(/\btheir team\b/gi, "your team");
 }
 
 function getYouTubeThumbnail(url: string) {

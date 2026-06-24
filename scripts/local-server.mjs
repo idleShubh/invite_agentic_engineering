@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import analyzeProfile from "../api/analyze-profile.js";
 import generateProposal from "../api/generate-proposal.js";
 import guests from "../api/guests.js";
 import login from "../api/login.js";
@@ -18,6 +19,7 @@ const dist = path.join(root, "dist");
 const port = Number(process.env.PORT || 3000);
 
 const handlers = {
+  "/api/analyze-profile": analyzeProfile,
   "/api/generate-proposal": generateProposal,
   "/api/guests": guests,
   "/api/login": login,

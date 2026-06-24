@@ -1,9 +1,36 @@
 export type PipelineStatus = "Reach Out" | "Contacted" | "In Process" | "Booked" | "Done";
 
+export type ProposalTemplate =
+  | "Distribution"
+  | "Technical Legacy"
+  | "Operator's Field Report"
+  | "Research Exchange"
+  | "Category Builder"
+  | "Founding Voice";
+
 export type ProposalContent = {
+  strategy: {
+    role: string;
+    companyStage: string;
+    audienceSize: string;
+    primaryMotivations: string[];
+    template: ProposalTemplate;
+    designSystem: string;
+    emotionalTrigger: string;
+    corePromise: string;
+  };
   heroHeadline: string;
   heroIntro: string;
   audienceQuote: string;
+  whyThem: string;
+  whyNow: string;
+  editorialThesis: string;
+  supportingAngles: string[];
+  researchSignals: string[];
+  observation: string;
+  sharpQuestion: string;
+  howTheyHelpUs: string;
+  howWeHelpThem: string;
   reasons: Array<{
     title: string;
     body: string;

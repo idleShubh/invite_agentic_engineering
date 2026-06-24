@@ -78,10 +78,27 @@ function normalizeGuest(guest: Guest): Guest {
     proposal: {
       ...defaults,
       ...guest.proposal,
+      strategy: {
+        ...defaults.strategy,
+        ...guest.proposal.strategy,
+        primaryMotivations:
+          guest.proposal.strategy?.primaryMotivations?.length
+            ? guest.proposal.strategy.primaryMotivations.map(cleanCopy)
+            : defaults.strategy.primaryMotivations
+      },
       heroHeadline: cleanCopy(hasOldDemoHeadline ? defaults.heroHeadline : guest.proposal.heroHeadline),
       heroIntro:
         guest.proposal.heroIntro.length > 260 ? defaults.heroIntro : cleanCopy(guest.proposal.heroIntro),
       audienceQuote: cleanCopy(guest.proposal.audienceQuote || defaults.audienceQuote),
+      whyThem: cleanCopy(guest.proposal.whyThem || defaults.whyThem),
+      whyNow: cleanCopy(guest.proposal.whyNow || defaults.whyNow),
+      editorialThesis: cleanCopy(guest.proposal.editorialThesis || defaults.editorialThesis),
+      supportingAngles: (guest.proposal.supportingAngles || defaults.supportingAngles).map(cleanCopy),
+      researchSignals: (guest.proposal.researchSignals || defaults.researchSignals).map(cleanCopy),
+      observation: cleanCopy(guest.proposal.observation || defaults.observation),
+      sharpQuestion: cleanCopy(guest.proposal.sharpQuestion || defaults.sharpQuestion),
+      howTheyHelpUs: cleanCopy(guest.proposal.howTheyHelpUs || defaults.howTheyHelpUs),
+      howWeHelpThem: cleanCopy(guest.proposal.howWeHelpThem || defaults.howWeHelpThem),
       reasons: (guest.proposal.reasons || defaults.reasons).map((reason) => ({
         title: cleanCopy(reason.title),
         body: cleanCopy(reason.body)
