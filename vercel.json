@@ -6,6 +6,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/proposals/:slug",
+      "destination": "/api/proposals?slug=:slug"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
