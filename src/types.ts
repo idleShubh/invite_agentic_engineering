@@ -1,4 +1,4 @@
-export type PipelineStatus = "Reach Out" | "Contacted" | "In Process" | "Booked" | "Done";
+export type PipelineStatus = "Reach Out" | "Contacted" | "In Process" | "Booked" | "Done" | "Ghosted";
 
 export type ProposalTemplate =
   | "Distribution"
@@ -54,6 +54,7 @@ export type Guest = {
   role: string;
   company: string;
   linkedinUrl: string;
+  notes: string;
   status: PipelineStatus;
   photoUrl: string;
   pdfName: string;
@@ -73,3 +74,5 @@ export const pipelineStatuses: PipelineStatus[] = [
   "Booked",
   "Done"
 ];
+
+export const ghostedStatus: PipelineStatus = "Ghosted";

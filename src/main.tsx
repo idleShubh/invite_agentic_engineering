@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowRight,
@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Filter,
   FileText,
+  Ghost,
   GraduationCap,
   Link,
   Loader2,
@@ -31,7 +32,7 @@ import {
 import { analyzeProfileWithDeepSeek, generateProposalWithDeepSeek } from "./deepseek";
 import { defaultProposal } from "./sampleData";
 import { deleteStoredGuest, loadGuests, loadProposal, recordProposalView, saveGuest, slugify, updateStoredGuest } from "./storage";
-import { Guest, PipelineStatus, ProposalContent, ProposalTemplate, pipelineStatuses } from "./types";
+import { Guest, PipelineStatus, ProposalContent, ProposalTemplate, ghostedStatus, pipelineStatuses } from "./types";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -186,6 +187,28 @@ function App() {
     );
   }
 
+  if (pathname === "/ghosted") {
+    return (
+      <>
+        <SeoManager
+          title="Ghosted Guests | Agentic Engineering"
+          description="Review podcast guests who stopped responding without deleting their profiles or proposals."
+          path="/ghosted"
+        />
+        <AppFrame pathname={pathname} onNavigate={navigate}>
+          <GhostedPage
+            guests={guests}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onChange={updateGuest}
+            onDelete={deleteGuest}
+            onNavigate={navigate}
+          />
+        </AppFrame>
+      </>
+    );
+  }
+
   async function upsertGuest(nextGuest: Guest) {
     const savedGuest = await saveGuest(nextGuest);
     setGuests((current) => {
@@ -317,6 +340,7 @@ function AppFrame({
           <button className={pathname === "/" ? "active" : ""} onClick={() => onNavigate("/")}>Generator</button>
           <button className={pathname === "/edit" ? "active" : ""} onClick={() => onNavigate("/edit")}>Edit</button>
           <button className={pathname === "/pipeline" ? "active" : ""} onClick={() => onNavigate("/pipeline")}>Pipeline</button>
+          <button className={pathname === "/ghosted" ? "active" : ""} onClick={() => onNavigate("/ghosted")}>Ghosted</button>
         </nav>
         <div className="sidebar-footer">
           <div className="theme-switch" aria-label="Theme switcher">
@@ -689,6 +713,7 @@ function GeneratorCard({
         role: safeRole,
         company: safeCompany,
         linkedinUrl,
+        notes: "",
         status: "Reach Out",
         photoUrl:
           photoUrl ||
@@ -1081,19 +1106,21 @@ function PipelinePage({
   const [draggingId, setDraggingId] = useState("");
   const [dropTarget, setDropTarget] = useState<PipelineStatus | "">("");
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [celebration, setCelebration] = useState<"done" | "ghosted" | "">("");
+  const celebrationTimer = useRef<number | undefined>(undefined);
   const normalizedQuery = query.trim().toLowerCase();
+  const activeGuests = guests.filter((guest) => guest.status !== ghostedStatus);
   const filteredGuests = normalizedQuery
-    ? guests.filter((guest) =>
+    ? activeGuests.filter((guest) =>
         [guest.name, guest.role, guest.company, guest.email]
           .join(" ")
           .toLowerCase()
           .includes(normalizedQuery)
       )
-    : guests;
+    : activeGuests;
   const selectedGuest = guests.find((guest) => guest.id === selectedId);
-  const bookedCount = guests.filter((guest) => guest.status === "Booked").length;
-  const liveCount = guests.filter((guest) => guest.published).length;
-  const viewedCount = guests.reduce((total, guest) => total + guest.viewed, 0);
+  const bookedCount = activeGuests.filter((guest) => guest.status === "Booked").length;
+  const liveCount = activeGuests.filter((guest) => guest.published).length;
 
   function openGuest(id: string) {
     onSelect(id);
@@ -1105,9 +1132,18 @@ function PipelinePage({
     const guest = guests.find((item) => item.id === draggingId);
     if (guest && guest.status !== status) {
       onMove(draggingId, { status });
+      if (status === "Done") triggerCelebration("done");
+      if (status === ghostedStatus) triggerCelebration("ghosted");
     }
     setDraggingId("");
     setDropTarget("");
+  }
+
+  function triggerCelebration(type: "done" | "ghosted") {
+    if (celebrationTimer.current) window.clearTimeout(celebrationTimer.current);
+    setCelebration("");
+    window.setTimeout(() => setCelebration(type), 20);
+    celebrationTimer.current = window.setTimeout(() => setCelebration(""), 2200);
   }
 
   return (
@@ -1117,10 +1153,6 @@ function PipelinePage({
           <h1>Pipeline</h1>
           <p>Drag guests between stages. Click any card for details, edits, and proposal actions.</p>
         </div>
-        <button className="primary-button" onClick={() => onNavigate("/")}>
-          <Plus size={16} />
-          New proposal
-        </button>
       </header>
 
       <div className="pipeline-toolbar">
@@ -1129,10 +1161,13 @@ function PipelinePage({
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search guests, roles, companies..." />
         </div>
         <div className="pipeline-stats">
-          <Stat value={guests.length.toString()} label="Total guests" />
+          <Stat value={activeGuests.length.toString()} label="Total guests" />
           <Stat value={liveCount.toString()} label="Published" />
           <Stat value={bookedCount.toString()} label="Booked" />
-          <Stat value={viewedCount.toString()} label="Proposal views" />
+          <button className="primary-button pipeline-new-button" onClick={() => onNavigate("/")}>
+            <Plus size={16} />
+            New proposal
+          </button>
         </div>
       </div>
 
@@ -1196,6 +1231,27 @@ function PipelinePage({
         })}
       </div>
 
+      <div
+        className={`ghosted-drop-zone ${dropTarget === ghostedStatus ? "drop-target" : ""}`}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDropTarget(ghostedStatus);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget("");
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          handleDrop(ghostedStatus);
+        }}
+      >
+        <Ghost size={22} />
+        <span>Ghosted</span>
+      </div>
+
+      {celebration ? <PipelineCelebration type={celebration} /> : null}
+
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent>
           {selectedGuest ? (
@@ -1215,6 +1271,122 @@ function PipelinePage({
                 <SheetDescription>Select a guest to see details.</SheetDescription>
               </SheetHeader>
             </>
+          )}
+        </SheetContent>
+      </Sheet>
+    </section>
+  );
+}
+
+function PipelineCelebration({ type }: { type: "done" | "ghosted" }) {
+  if (type === "ghosted") {
+    return (
+      <div className="pipeline-celebration ghost-rain" aria-hidden="true">
+        {Array.from({ length: 14 }).map((_, index) => (
+          <Ghost key={index} size={24 + (index % 4) * 5} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pipeline-celebration confetti-burst" aria-hidden="true">
+      <div className="completion-badge">
+        <Sparkles size={22} />
+        <strong>Podcast completed</strong>
+        <span>Episode moved to Done</span>
+      </div>
+      <div className="confetti-cannon left" />
+      <div className="confetti-cannon right" />
+      {Array.from({ length: 96 }).map((_, index) => (
+        <span key={index} />
+      ))}
+      {Array.from({ length: 18 }).map((_, index) => (
+        <i key={index} />
+      ))}
+    </div>
+  );
+}
+
+function GhostedPage({
+  guests,
+  selectedId,
+  onSelect,
+  onChange,
+  onDelete,
+  onNavigate
+}: {
+  guests: Guest[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  onChange: (id: string, patch: Partial<Guest>) => void;
+  onDelete: (id: string) => void;
+  onNavigate: (path: string) => void;
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const ghostedGuests = guests.filter((guest) => guest.status === ghostedStatus);
+  const selectedGuest = ghostedGuests.find((guest) => guest.id === selectedId) || ghostedGuests[0];
+
+  function openGuest(id: string) {
+    onSelect(id);
+    setSheetOpen(true);
+  }
+
+  return (
+    <section className="pipeline-page ghosted-page">
+      <header className="pipeline-hero">
+        <div>
+          <h1>Ghosted</h1>
+          <p>Profiles that stopped responding live here, out of the active pipeline but still easy to review.</p>
+        </div>
+      </header>
+
+      {ghostedGuests.length ? (
+        <div className="ghosted-grid">
+          {ghostedGuests.map((guest) => (
+            <Card
+              className={`pipeline-card ${guest.id === selectedId ? "selected" : ""}`}
+              key={guest.id}
+              onClick={() => openGuest(guest.id)}
+            >
+              <CardContent className="pipeline-card-content">
+                <Avatar>
+                  <AvatarImage src={guest.photoUrl} alt={guest.name} />
+                  <AvatarFallback>{initials(guest.name)}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <h3>{guest.name}</h3>
+                  <p>{guest.company}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state ghosted-empty">
+          <Ghost size={26} />
+          <h2>No ghosted profiles yet.</h2>
+          <p>Drag a profile into the Ghosted drop zone from Pipeline when someone stops responding.</p>
+        </div>
+      )}
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent>
+          {selectedGuest ? (
+            <PipelineGuestSheet
+              guest={selectedGuest}
+              onChange={onChange}
+              onDelete={(id) => {
+                onDelete(id);
+                setSheetOpen(false);
+              }}
+              onEdit={() => onNavigate("/edit")}
+            />
+          ) : (
+            <SheetHeader>
+              <SheetTitle>Ghosted details</SheetTitle>
+              <SheetDescription>Select a ghosted guest to see details.</SheetDescription>
+            </SheetHeader>
           )}
         </SheetContent>
       </Sheet>
@@ -1247,7 +1419,39 @@ function PipelineGuestSheet({
   onDelete: (id: string) => void;
   onEdit: () => void;
 }) {
+  const [draft, setDraft] = useState({
+    name: guest.name,
+    role: guest.role,
+    company: guest.company,
+    linkedinUrl: guest.linkedinUrl,
+    email: guest.email,
+    notes: guest.notes
+  });
   const shareUrl = `${window.location.origin}/proposal/${guest.slug}`;
+
+  useEffect(() => {
+    setDraft({
+      name: guest.name,
+      role: guest.role,
+      company: guest.company,
+      linkedinUrl: guest.linkedinUrl,
+      email: guest.email,
+      notes: guest.notes
+    });
+  }, [guest.id, guest.name, guest.role, guest.company, guest.linkedinUrl, guest.email, guest.notes]);
+
+  function updateDraft(field: keyof typeof draft, value: string) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function commitField(field: keyof typeof draft) {
+    const value = draft[field].trim();
+    if (value === guest[field]) return;
+    onChange(guest.id, { [field]: value } as Partial<Guest>);
+  }
+
+  const linkedinHref = externalProfileUrl(draft.linkedinUrl);
+
   return (
     <>
       <SheetHeader>
@@ -1264,21 +1468,6 @@ function PipelineGuestSheet({
       </SheetHeader>
 
       <div className="sheet-stack">
-        <div className="sheet-meta-grid">
-          <Stat value={guest.status} label="Stage" />
-          <Stat value={guest.viewed.toString()} label="Views" />
-          <Stat value={guest.published ? "Live" : "Draft"} label="Proposal" />
-        </div>
-
-        <label>
-          Pipeline stage
-          <select value={guest.status} onChange={(event) => onChange(guest.id, { status: event.target.value as PipelineStatus })}>
-            {pipelineStatuses.map((status) => (
-              <option key={status}>{status}</option>
-            ))}
-          </select>
-        </label>
-
         <div className="share-box">
           <Link size={16} />
           <span>{shareUrl}</span>
@@ -1298,10 +1487,78 @@ function PipelineGuestSheet({
           </Button>
         </div>
 
-        <Button variant="secondary" onClick={() => onChange(guest.id, { published: !guest.published })}>
-          <Check size={16} />
-          {guest.published ? "Mark as draft" : "Publish proposal"}
-        </Button>
+        <div className="sheet-section">
+          <p className="eyebrow">Guest details</p>
+          <div className="sheet-field-grid">
+            <label>
+              Name
+              <input
+                value={draft.name}
+                onChange={(event) => updateDraft("name", event.target.value)}
+                onBlur={() => commitField("name")}
+                placeholder="Guest name"
+              />
+            </label>
+            <label>
+              Role
+              <input
+                value={draft.role}
+                onChange={(event) => updateDraft("role", event.target.value)}
+                onBlur={() => commitField("role")}
+                placeholder="Role"
+              />
+            </label>
+            <label>
+              Company
+              <input
+                value={draft.company}
+                onChange={(event) => updateDraft("company", event.target.value)}
+                onBlur={() => commitField("company")}
+                placeholder="Company"
+              />
+            </label>
+            <label>
+              Email
+              <input
+                value={draft.email}
+                onChange={(event) => updateDraft("email", event.target.value)}
+                onBlur={() => commitField("email")}
+                placeholder="Add email once secured"
+                type="email"
+              />
+            </label>
+            <label className="sheet-field-wide">
+              LinkedIn
+              <div className="linked-field">
+                <input
+                  value={draft.linkedinUrl}
+                  onChange={(event) => updateDraft("linkedinUrl", event.target.value)}
+                  onBlur={() => commitField("linkedinUrl")}
+                  placeholder="https://linkedin.com/in/..."
+                />
+                <a
+                  aria-disabled={!linkedinHref}
+                  className={`icon-link-button ${linkedinHref ? "" : "disabled"}`}
+                  href={linkedinHref || undefined}
+                  target="_blank"
+                  title="Open LinkedIn profile"
+                >
+                  <ExternalLink size={16} />
+                </a>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <label className="sheet-notes">
+          Notes
+          <textarea
+            value={draft.notes}
+            onChange={(event) => updateDraft("notes", event.target.value)}
+            onBlur={() => commitField("notes")}
+            placeholder="Add follow-up context, guest preferences, email status, topic ideas, or anything to remember."
+          />
+        </label>
 
         <Button variant="outline" className="danger-button" onClick={() => onDelete(guest.id)}>
           <Trash2 size={16} />
@@ -1310,6 +1567,13 @@ function PipelineGuestSheet({
       </div>
     </>
   );
+}
+
+function externalProfileUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
 }
 
 function EditPage({

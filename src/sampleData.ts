@@ -143,6 +143,7 @@ export const seedGuests: Guest[] = [
     role: "VP of Engineering",
     company: "AI Infrastructure Co.",
     linkedinUrl: "https://linkedin.com/in/example",
+    notes: "",
     status: "Reach Out",
     photoUrl:
       "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=320&q=80",

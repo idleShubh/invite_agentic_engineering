@@ -1,4 +1,8 @@
 import crypto from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
+loadLocalEnv();
 
 const projectId = process.env.SUPABASE_PROJECT_ID || "xsomhstngzyvxhhlyhpm";
 const supabaseUrl = process.env.SUPABASE_URL || `https://${projectId}.supabase.co`;
@@ -14,6 +18,19 @@ const secureCookie = process.env.NODE_ENV === "production" ? " Secure;" : "";
 
 export const adminEmail = process.env.ADMIN_EMAIL || "admin@supatest.ai";
 export const adminPassword = process.env.ADMIN_PASSWORD || "local@123";
+
+function loadLocalEnv() {
+  const envPath = path.join(process.cwd(), ".env");
+  if (!existsSync(envPath)) return;
+
+  for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match || process.env[match[1]] !== undefined) continue;
+    process.env[match[1]] = match[2].replace(/^["']|["']$/g, "");
+  }
+}
 
 export function json(res, status, body, headers = {}) {
   res.statusCode = status;

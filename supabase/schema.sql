@@ -5,6 +5,7 @@ create table if not exists public.guests (
   role text not null,
   company text not null,
   linkedin_url text default '',
+  notes text default '',
   status text not null default 'Reach Out',
   photo_url text not null,
   pdf_name text default '',

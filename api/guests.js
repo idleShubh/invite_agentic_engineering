@@ -5,28 +5,26 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === "GET") {
-      const guests = await supabaseFetch(
-        "guests?select=id,name,email,role,company,linkedin_url,status,photo_url,pdf_name,slug,proposal,published,viewed,created_at,updated_at&order=created_at.desc"
-      );
+      const guests = await fetchGuestRows();
       return json(res, 200, guests.map(fromRow));
     }
 
     if (req.method === "POST") {
       const guest = await readBody(req);
-      const rows = await supabaseFetch("guests", {
-        method: "POST",
-        body: JSON.stringify(toRow(guest))
-      });
+      const rows = await writeGuestRow("guests", toRow(guest));
       return json(res, 200, fromRow(rows[0]));
     }
 
     if (req.method === "PATCH") {
       const { id, patch } = await readBody(req);
       if (!id || !patch) return json(res, 400, { error: "Missing id or patch." });
-      const rows = await supabaseFetch(`guests?id=eq.${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(toRow({ ...patch, updatedAt: new Date().toISOString() }, true))
-      });
+      const row = toRow({ ...patch, updatedAt: new Date().toISOString() }, true);
+      const rows = await writeGuestRow(
+        `guests?id=eq.${encodeURIComponent(id)}`,
+        row,
+        "PATCH",
+        id
+      );
       return json(res, 200, fromRow(rows[0]));
     }
 
@@ -46,6 +44,37 @@ export default async function handler(req, res) {
   }
 }
 
+async function fetchGuestRows() {
+  try {
+    return await supabaseFetch(
+      "guests?select=id,name,email,role,company,linkedin_url,notes,status,photo_url,pdf_name,slug,proposal,published,viewed,created_at,updated_at&order=created_at.desc"
+    );
+  } catch (error) {
+    if (!String(error?.message || "").toLowerCase().includes("notes")) throw error;
+    return supabaseFetch(
+      "guests?select=id,name,email,role,company,linkedin_url,status,photo_url,pdf_name,slug,proposal,published,viewed,created_at,updated_at&order=created_at.desc"
+    );
+  }
+}
+
+async function writeGuestRow(path, row, method = "POST", id = "") {
+  try {
+    return await supabaseFetch(path, {
+      method,
+      body: JSON.stringify(row)
+    });
+  } catch (error) {
+    if (!String(error?.message || "").toLowerCase().includes("notes")) throw error;
+    if (method === "PATCH" && Object.prototype.hasOwnProperty.call(row, "notes")) {
+      return patchNotesIntoProposal(id, row);
+    }
+    return supabaseFetch(path, {
+      method,
+      body: JSON.stringify(withoutNotes(row))
+    });
+  }
+}
+
 export function toRow(guest, partial = false) {
   const row = {
     id: guest.id,
@@ -54,6 +83,7 @@ export function toRow(guest, partial = false) {
     role: guest.role,
     company: guest.company,
     linkedin_url: guest.linkedinUrl,
+    notes: guest.notes,
     status: guest.status,
     photo_url: guest.photoUrl,
     pdf_name: guest.pdfName,
@@ -76,6 +106,7 @@ export function fromRow(row) {
     role: row.role,
     company: row.company,
     linkedinUrl: row.linkedin_url || "",
+    notes: row.notes || row.proposal?.crmNotes || "",
     status: row.status,
     photoUrl: row.photo_url,
     pdfName: row.pdf_name || "",
@@ -91,4 +122,26 @@ export function fromRow(row) {
 
 function compact(row) {
   return Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined));
+}
+
+function withoutNotes(row) {
+  const { notes, ...rest } = row;
+  return rest;
+}
+
+async function patchNotesIntoProposal(id, row) {
+  if (!id) throw new Error("Missing id for notes update.");
+  const currentRows = await supabaseFetch(`guests?id=eq.${encodeURIComponent(id)}&select=proposal&limit=1`);
+  if (!currentRows[0]) throw new Error("Guest not found.");
+  const proposal = {
+    ...(currentRows[0].proposal || {}),
+    crmNotes: row.notes || ""
+  };
+  return supabaseFetch(`guests?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...withoutNotes(row),
+      proposal
+    })
+  });
 }

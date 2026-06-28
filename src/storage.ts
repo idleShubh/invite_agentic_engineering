@@ -80,6 +80,9 @@ function normalizeGuest(guest: Guest): Guest {
   const hasOldDemoHeadline = guest.proposal.heroHeadline.includes("your ideas belong in front of the people");
   return {
     ...guest,
+    email: guest.email || "",
+    linkedinUrl: guest.linkedinUrl || "",
+    notes: guest.notes || "",
     proposal: {
       ...defaults,
       ...guest.proposal,
