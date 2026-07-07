@@ -1835,6 +1835,7 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
   const proposalSkin = templateClassName(proposal.strategy.template);
   const proposalFrame = proposalFrameForTemplate(proposal.strategy.template);
   const proposalReasons = proposalReasonsForTemplate(proposal.reasons, proposalFrame, proposal.strategy.template);
+  const proposalFitCards = proposalFitCardsForFrame(proposal, proposalFrame);
 
   return (
     <>
@@ -1920,22 +1921,22 @@ function ProposalPage({ guest, onViewed }: { guest?: Guest; onViewed: () => void
         </div>
       </ProposalBand>
 
-      <ProposalBand label={proposalFrame.proofLabel} title={proposalFrame.proofTitle}>
-        <div className="proof-grid">
-          <div className="proof-card">
-            <p className="proposal-label">{proposalFrame.signalLabel}</p>
-            {proposal.researchSignals.slice(0, 5).map((signal) => (
-              <span key={signal}>{signal}</span>
-            ))}
-          </div>
-          <div className="proof-card">
-            <p className="proposal-label">Observation</p>
-            <strong>{proposal.observation}</strong>
-          </div>
-          <div className="proof-card">
-            <p className="proposal-label">Sharp question</p>
-            <strong>{proposal.sharpQuestion}</strong>
-          </div>
+      <ProposalBand label={proposalFrame.fitLabel} title={proposalFrame.fitTitle}>
+        <div className="fit-signal" aria-label={`${proposalFrame.fitBadgeLabel}: ${proposalFrame.fitBadgeValue}`}>
+          <span>{proposalFrame.fitBadgeLabel}</span>
+          <strong>{proposalFrame.fitBadgeValue}</strong>
+        </div>
+        <div className="fit-grid">
+          {proposalFitCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <div className="fit-card" key={card.title}>
+                <Icon size={18} />
+                <h3>{card.title}</h3>
+                <p>{card.body}</p>
+              </div>
+            );
+          })}
         </div>
       </ProposalBand>
 
@@ -2081,9 +2082,12 @@ type ProposalFrame = {
   }>;
   reasonLabel: string;
   reasonTitle: string;
-  proofLabel: string;
-  proofTitle: string;
-  signalLabel: string;
+  fitLabel: string;
+  fitTitle: string;
+  fitBadgeLabel: string;
+  fitBadgeValue: string;
+  fitPayoff: string;
+  fitAvoidance: string;
   episodeLabel: string;
   topicIntro: string;
   fallbackReasons: Array<{ title: string; body: string }>;
@@ -2126,9 +2130,12 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       ],
       reasonLabel: "Why this is worth your time",
       reasonTitle: "Three reasons to bring the idea here.",
-      proofLabel: "Research fit",
-      proofTitle: "We are starting from the work, not a generic guest bio.",
-      signalLabel: "Signals we will build from",
+      fitLabel: "Technical fit",
+      fitTitle: "This works because the idea can survive detail.",
+      fitBadgeLabel: "Technical fit",
+      fitBadgeValue: "Strong",
+      fitPayoff: "Technical listeners leave with a buildable understanding of what they can test, adapt, or challenge.",
+      fitAvoidance: "No paper-summary theatre, no marketing layer, and no flattening of the technical nuance.",
       episodeLabel: "Discussion map",
       topicIntro: "Potential technical threads we would explore with you:",
       fallbackReasons: [
@@ -2184,9 +2191,12 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       ],
       reasonLabel: "Why operators listen",
       reasonTitle: "Three reasons this should not feel like another podcast slot.",
-      proofLabel: "Operating context",
-      proofTitle: "We will anchor the episode in the decisions only you can explain.",
-      signalLabel: "Operating signals",
+      fitLabel: "Editorial fit",
+      fitTitle: "This works because your decisions are the story.",
+      fitBadgeLabel: "Editorial fit",
+      fitBadgeValue: "Strong",
+      fitPayoff: "Operators leave with a decision lens for what deserves trust, budget, process, and governance.",
+      fitAvoidance: "No AI hype, no founder-origin story, no tool tour, and no surface-level leadership takes.",
       episodeLabel: "Field report",
       topicIntro: "Potential operating questions we would pressure-test with you:",
       fallbackReasons: [
@@ -2242,9 +2252,12 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       ],
       reasonLabel: "Why shape it here",
       reasonTitle: "Three reasons this helps the category, not just the episode.",
-      proofLabel: "Narrative research",
-      proofTitle: "We will connect your story to the category shift around it.",
-      signalLabel: "Category signals",
+      fitLabel: "Narrative fit",
+      fitTitle: "This works because your point of view can name the shift.",
+      fitBadgeLabel: "Narrative fit",
+      fitBadgeValue: "Strong",
+      fitPayoff: "Builders leave with clearer language for the market change and why it matters now.",
+      fitAvoidance: "No category buzzwords, no generic market map, and no company intro dressed as a thesis.",
       episodeLabel: "Proposed thesis",
       topicIntro: "Potential category angles we would discuss with you:",
       fallbackReasons: [
@@ -2300,9 +2313,12 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       ],
       reasonLabel: "Why say yes",
       reasonTitle: "Three reasons this respects your time.",
-      proofLabel: "Prepared angle",
-      proofTitle: "We will bring a point of view, not a blank interview doc.",
-      signalLabel: "What we studied",
+      fitLabel: "Invitation fit",
+      fitTitle: "This works because the conversation has a prepared point of view.",
+      fitBadgeLabel: "Invitation fit",
+      fitBadgeValue: "Strong",
+      fitPayoff: "Serious builders leave with a sharper standard for what good work in the category sounds like.",
+      fitAvoidance: "No generic podcast circuit, no broad AI takes, and no empty founder mythology.",
       episodeLabel: "Editorial premise",
       topicIntro: "Potential standards-setting threads we would explore:",
       fallbackReasons: [
@@ -2358,9 +2374,12 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
       ],
       reasonLabel: "Why preserve it now",
       reasonTitle: "Three reasons your thinking is worth recording.",
-      proofLabel: "Technical context",
-      proofTitle: "We will build from your actual decisions and constraints.",
-      signalLabel: "Signals we will preserve",
+      fitLabel: "Judgment fit",
+      fitTitle: "This works because the reasoning matters more than the recap.",
+      fitBadgeLabel: "Judgment fit",
+      fitBadgeValue: "Strong",
+      fitPayoff: "Future builders leave with principles they can revisit when facing similar trade-offs.",
+      fitAvoidance: "No resume recap, no architecture name-dropping, and no shallow lessons learned.",
       episodeLabel: "Technical record",
       topicIntro: "Potential principles and trade-offs we would unpack:",
       fallbackReasons: [
@@ -2414,9 +2433,12 @@ function proposalFrameForTemplate(template: ProposalContent["strategy"]["templat
     ],
     reasonLabel: "Why join us",
     reasonTitle: "Three reasons to come on Agentic Engineering.",
-    proofLabel: "We did the homework",
-    proofTitle: "The conversation starts from your actual context.",
-    signalLabel: "What we noticed",
+    fitLabel: "Audience fit",
+    fitTitle: "This works because your ideas have a useful audience.",
+    fitBadgeLabel: "Audience fit",
+    fitBadgeValue: "Strong",
+    fitPayoff: "Relevant builders leave knowing what to try, share, or question next.",
+    fitAvoidance: "No broad promo segment, no generic AI commentary, and no shallow product pitch.",
     episodeLabel: "Proposed episode",
     topicIntro: "Potential topics we would discuss with you:",
     fallbackReasons: [
@@ -2452,6 +2474,51 @@ function proposalReasonsForTemplate(
     return forbidden.test(text) ? frame.fallbackReasons[index] : reason;
   });
   return cleaned.length === 3 ? cleaned : frame.fallbackReasons;
+}
+
+function proposalFitCardsForFrame(proposal: ProposalContent, frame: ProposalFrame) {
+  const primarySignal = proposal.researchSignals[0];
+  const guestEdge =
+    (primarySignal
+      ? `${sentenceWithPeriod(primarySignal)} That gives the conversation a concrete starting point before we move into the judgment behind it.`
+      : "") ||
+    proposal.whyThem ||
+    proposal.observation ||
+    frame.fallbackReasons[0]?.body ||
+    "The conversation starts from work specific enough to deserve a prepared angle.";
+
+  const coreTension =
+    proposal.sharpQuestion ||
+    proposal.observation ||
+    "The best part of the episode is the decision pressure behind the work.";
+
+  return [
+    {
+      title: "Guest edge",
+      body: guestEdge,
+      icon: Sparkles
+    },
+    {
+      title: "Core tension",
+      body: coreTension,
+      icon: TrendingUp
+    },
+    {
+      title: "Listener payoff",
+      body: frame.fitPayoff,
+      icon: Users
+    },
+    {
+      title: "What we will avoid",
+      body: frame.fitAvoidance,
+      icon: Filter
+    }
+  ];
+}
+
+function sentenceWithPeriod(value: string) {
+  const trimmed = value.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 function makeProposalGuestFacing(proposal: ProposalContent, name: string): ProposalContent {

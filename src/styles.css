@@ -1748,6 +1748,7 @@ select:focus {
 }
 
 .audience-grid,
+.fit-grid,
 .reason-grid,
 .proof-grid,
 .episode-grid,
@@ -1796,16 +1797,7 @@ select:focus {
     var(--surface);
 }
 
-.proposal-layout-operator .audience-grid {
-  grid-template-columns: minmax(280px, 1fr) repeat(3, minmax(190px, 0.85fr));
-}
-
-.proposal-layout-operator .mini-card:first-child,
-.proposal-layout-category .mini-card:first-child,
-.proposal-layout-founding .mini-card:first-child {
-  grid-column: span 2;
-}
-
+.proposal-layout-operator .audience-grid,
 .proposal-layout-category .audience-grid,
 .proposal-layout-founding .audience-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1826,6 +1818,62 @@ select:focus {
 .proposal-layout-operator .reason-card,
 .proposal-layout-research .reason-card {
   border-top: 2px solid var(--proposal-accent);
+}
+
+.fit-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.fit-signal span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.fit-signal strong {
+  color: var(--proposal-accent, var(--text));
+  font-size: 13px;
+}
+
+.fit-card {
+  display: grid;
+  align-content: start;
+  gap: 11px;
+  min-height: 190px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--proposal-accent) 7%, transparent), transparent 48%),
+    var(--surface);
+}
+
+.fit-card svg {
+  color: var(--proposal-accent, var(--soft));
+}
+
+.fit-card h3,
+.fit-card p {
+  margin: 0;
+}
+
+.fit-card h3 {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.fit-card p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.38;
 }
 
 .expect-grid {
@@ -2102,11 +2150,10 @@ blockquote {
     grid-template-columns: 1fr;
   }
 
-  .proposal-layout-operator .mini-card:first-child,
-  .proposal-layout-category .mini-card:first-child,
-  .proposal-layout-founding .mini-card:first-child {
-    grid-column: auto;
+  .fit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
 }
 
 @media (max-width: 720px) {
@@ -2128,6 +2175,7 @@ blockquote {
   .metrics-row,
   .editor-split,
   .audience-grid,
+  .fit-grid,
   .reason-grid,
   .reason-grid.two-up,
   .proof-grid,
